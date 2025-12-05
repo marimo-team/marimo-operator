@@ -68,22 +68,66 @@ func (r *MarimoNotebookReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// 3. Reconcile Pod
+	// 3. Reconcile PVC (if storage configured)
+	if err := r.reconcilePVC(ctx, notebook); err != nil {
+		logger.Error(err, "Failed to reconcile PVC")
+		return ctrl.Result{}, err
+	}
+
+	// 4. Reconcile Pod
 	pod, err := r.reconcilePod(ctx, notebook)
 	if err != nil {
 		logger.Error(err, "Failed to reconcile Pod")
 		return ctrl.Result{}, err
 	}
 
-	// 4. Reconcile Service
+	// 5. Reconcile Service
 	svc, err := r.reconcileService(ctx, notebook)
 	if err != nil {
 		logger.Error(err, "Failed to reconcile Service")
 		return ctrl.Result{}, err
 	}
 
-	// 5. Update Status
+	// 6. Update Status
 	return r.updateStatus(ctx, notebook, pod, svc)
+}
+
+func (r *MarimoNotebookReconciler) reconcilePVC(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook) error {
+	// Skip if no storage configured
+	if notebook.Spec.Storage == nil {
+		return nil
+	}
+
+	logger := logf.FromContext(ctx)
+	desired := resources.BuildPVC(notebook)
+	if desired == nil {
+		return nil
+	}
+
+	// Set owner reference for automatic garbage collection
+	if err := controllerutil.SetControllerReference(notebook, desired, r.Scheme); err != nil {
+		return err
+	}
+
+	// Check if PVC exists
+	existing := &corev1.PersistentVolumeClaim{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			logger.Info("Creating PVC", "name", desired.Name, "size", desired.Spec.Resources.Requests.Storage().String())
+			if err := r.Create(ctx, desired); err != nil {
+				if k8serrors.IsAlreadyExists(err) {
+					return nil // PVC was created between Get and Create
+				}
+				return err
+			}
+			return nil
+		}
+		return err
+	}
+
+	// PVC exists - we don't update PVCs (immutable size in most cases)
+	return nil
 }
 
 func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook) (*corev1.Pod, error) {

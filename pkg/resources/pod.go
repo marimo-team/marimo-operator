@@ -25,34 +25,48 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	var volumeMounts []corev1.VolumeMount
 	var volumes []corev1.Volume
 
-	// Always use emptyDir for now (PVC support added in later commit)
-	volumes = []corev1.Volume{
-		{
-			Name: "notebook-data",
-			VolumeSource: corev1.VolumeSource{
-				EmptyDir: &corev1.EmptyDirVolumeSource{},
+	// Use PVC if storage is configured, otherwise emptyDir
+	if notebook.Spec.Storage != nil {
+		volumes = []corev1.Volume{
+			{
+				Name: PVCVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+						ClaimName: notebook.Name,
+					},
+				},
 			},
-		},
+		}
+	} else {
+		volumes = []corev1.Volume{
+			{
+				Name: PVCVolumeName,
+				VolumeSource: corev1.VolumeSource{
+					EmptyDir: &corev1.EmptyDirVolumeSource{},
+				},
+			},
+		}
 	}
 
-	// Init container clones from git source
+	// Init container clones from git source (idempotent - skips if content exists)
 	initContainers = []corev1.Container{
 		{
 			Name:  "git-clone",
 			Image: "alpine/git:latest",
 			Command: []string{"sh", "-c", fmt.Sprintf(
-				"git clone --depth 1 %s %s",
+				"if [ -d %s/.git ]; then echo 'Repository already exists, skipping clone'; else git clone --depth 1 %s %s; fi",
+				NotebookDir,
 				notebook.Spec.Source,
 				NotebookDir,
 			)},
 			VolumeMounts: []corev1.VolumeMount{
-				{Name: "notebook-data", MountPath: NotebookDir},
+				{Name: PVCVolumeName, MountPath: NotebookDir},
 			},
 		},
 	}
 
 	volumeMounts = []corev1.VolumeMount{
-		{Name: "notebook-data", MountPath: NotebookDir},
+		{Name: PVCVolumeName, MountPath: NotebookDir},
 	}
 
 	// Build marimo command args
