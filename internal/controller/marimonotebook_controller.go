@@ -18,14 +18,19 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	marimov1alpha1 "github.com/marimo-team/marimo-operator/api/v1alpha1"
+	"github.com/marimo-team/marimo-operator/pkg/resources"
 )
 
 // MarimoNotebookReconciler reconciles a MarimoNotebook object
@@ -44,17 +49,157 @@ type MarimoNotebookReconciler struct {
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
-// TODO(user): Modify the Reconcile function to compare the state specified by
-// the MarimoNotebook object against the actual cluster state, and then
-// perform operations to make the cluster state reflect the state specified by
-// the user.
-//
-// For more details, check Reconcile and its Result here:
-// - https://pkg.go.dev/sigs.k8s.io/controller-runtime@v0.22.4/pkg/reconcile
 func (r *MarimoNotebookReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
-	_ = logf.FromContext(ctx)
+	logger := logf.FromContext(ctx)
 
-	// TODO(user): your logic here
+	// 1. Fetch the MarimoNotebook
+	notebook := &marimov1alpha1.MarimoNotebook{}
+	if err := r.Get(ctx, req.NamespacedName, notebook); err != nil {
+		if k8serrors.IsNotFound(err) {
+			logger.V(1).Info("MarimoNotebook not found, skipping")
+			return ctrl.Result{}, nil
+		}
+		return ctrl.Result{}, err
+	}
+
+	// 2. Handle deletion (owner references handle cleanup)
+	if !notebook.DeletionTimestamp.IsZero() {
+		logger.Info("MarimoNotebook is being deleted")
+		return ctrl.Result{}, nil
+	}
+
+	// 3. Reconcile Pod
+	pod, err := r.reconcilePod(ctx, notebook)
+	if err != nil {
+		logger.Error(err, "Failed to reconcile Pod")
+		return ctrl.Result{}, err
+	}
+
+	// 4. Reconcile Service
+	svc, err := r.reconcileService(ctx, notebook)
+	if err != nil {
+		logger.Error(err, "Failed to reconcile Service")
+		return ctrl.Result{}, err
+	}
+
+	// 5. Update Status
+	return r.updateStatus(ctx, notebook, pod, svc)
+}
+
+func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook) (*corev1.Pod, error) {
+	logger := logf.FromContext(ctx)
+	desired := resources.BuildPod(notebook)
+
+	// Set owner reference for automatic garbage collection
+	if err := controllerutil.SetControllerReference(notebook, desired, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	// Check if Pod exists
+	existing := &corev1.Pod{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			logger.Info("Creating Pod", "name", desired.Name)
+			if err := r.Create(ctx, desired); err != nil {
+				if k8serrors.IsAlreadyExists(err) {
+					// Pod was created between Get and Create, re-fetch
+					if err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing); err != nil {
+						return nil, err
+					}
+					return existing, nil
+				}
+				return nil, err
+			}
+			return desired, nil
+		}
+		return nil, err
+	}
+
+	// Pod exists - we don't update running pods (recreate strategy)
+	return existing, nil
+}
+
+func (r *MarimoNotebookReconciler) reconcileService(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook) (*corev1.Service, error) {
+	logger := logf.FromContext(ctx)
+	desired := resources.BuildService(notebook)
+
+	// Set owner reference
+	if err := controllerutil.SetControllerReference(notebook, desired, r.Scheme); err != nil {
+		return nil, err
+	}
+
+	// Check if Service exists
+	existing := &corev1.Service{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			logger.Info("Creating Service", "name", desired.Name)
+			if err := r.Create(ctx, desired); err != nil {
+				if k8serrors.IsAlreadyExists(err) {
+					// Service was created between Get and Create, re-fetch
+					if err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing); err != nil {
+						return nil, err
+					}
+					return existing, nil
+				}
+				return nil, err
+			}
+			return desired, nil
+		}
+		return nil, err
+	}
+
+	return existing, nil
+}
+
+func (r *MarimoNotebookReconciler) updateStatus(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook, pod *corev1.Pod, svc *corev1.Service) (ctrl.Result, error) {
+	// Determine phase from pod status
+	phase := marimov1alpha1.PhasePending
+	if pod != nil {
+		switch pod.Status.Phase {
+		case corev1.PodRunning:
+			phase = marimov1alpha1.PhaseRunning
+		case corev1.PodFailed:
+			phase = marimov1alpha1.PhaseFailed
+		}
+	}
+
+	// Build URL
+	url := ""
+	if svc != nil {
+		url = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", svc.Name, svc.Namespace, notebook.Spec.Port)
+	}
+
+	// Compute source hash
+	sourceHash := fmt.Sprintf("%x", sha256.Sum256([]byte(notebook.Spec.Source)))[:12]
+
+	// Get names safely
+	podName := ""
+	if pod != nil {
+		podName = pod.Name
+	}
+	svcName := ""
+	if svc != nil {
+		svcName = svc.Name
+	}
+
+	// Update status if changed
+	if notebook.Status.Phase != phase ||
+		notebook.Status.URL != url ||
+		notebook.Status.SourceHash != sourceHash ||
+		notebook.Status.PodName != podName ||
+		notebook.Status.ServiceName != svcName {
+
+		notebook.Status.Phase = phase
+		notebook.Status.URL = url
+		notebook.Status.SourceHash = sourceHash
+		notebook.Status.PodName = podName
+		notebook.Status.ServiceName = svcName
+
+		err := r.Status().Update(ctx, notebook)
+		return ctrl.Result{}, err
+	}
 
 	return ctrl.Result{}, nil
 }
