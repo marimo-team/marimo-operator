@@ -1,0 +1,32 @@
+name: Plugin Tests
+
+on:
+  push:
+    paths:
+      - 'plugin/**'
+  pull_request:
+    paths:
+      - 'plugin/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Run tests
+        run: |
+          cd plugin
+          uvx --with pytest-mock --with click --with pyyaml --with kubernetes pytest tests -v

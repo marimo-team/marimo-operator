@@ -1,0 +1,63 @@
+# Git-Sync Sidecar Example
+# This deploys a marimo notebook with git-sync for continuous updates
+# from a remote repository
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: git-sync-notebook
+  namespace: default
+spec:
+  source: "https://github.com/marimo-team/examples.git"
+
+  # Persistent storage (required for sidecars)
+  storage:
+    size: "2Gi"
+
+  # Disable auth for examples (empty auth block = --no-token)
+  auth: {}
+
+  # Git-sync sidecar for automatic repository updates
+  sidecars:
+    - name: git-sync
+      image: registry.k8s.io/git-sync/git-sync:v4.2.1
+      env:
+        # Repository to sync
+        - name: GITSYNC_REPO
+          value: "https://github.com/marimo-team/marimo.git"
+        # Sync period (how often to pull updates)
+        - name: GITSYNC_PERIOD
+          value: "60s"
+        # Sync to the same directory as marimo
+        - name: GITSYNC_ROOT
+          value: "/home/marimo/notebooks"
+        # Create a symlink for marimo to follow
+        - name: GITSYNC_LINK
+          value: "current"
+        # Depth of git clone (1 for shallow clone)
+        - name: GITSYNC_DEPTH
+          value: "1"
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+---
+# For private repositories, create a Secret with SSH key:
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: git-ssh-key
+# type: Opaque
+# stringData:
+#   ssh-privatekey: |
+#     -----BEGIN OPENSSH PRIVATE KEY-----
+#     ...
+#     -----END OPENSSH PRIVATE KEY-----
+#
+# Then update the sidecar with:
+# env:
+#   - name: GITSYNC_SSH_KEY_FILE
+#     value: "/etc/git-secret/ssh-privatekey"
+# And add a volume mount in podOverrides

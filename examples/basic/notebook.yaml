@@ -1,0 +1,18 @@
+# Basic MarimoNotebook example
+# This deploys a marimo notebook server with default settings
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: example-notebooks
+  namespace: default
+spec:
+  # Git repository containing notebook files
+  source: "https://github.com/marimo-team/examples.git"
+
+  # Optional: use persistent storage to preserve edits across restarts
+  storage:
+    size: "1Gi"
+
+  # Disable auth for examples (empty auth block = --no-token)
+  # In production, omit this to auto-generate a token
+  auth: {}

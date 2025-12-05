@@ -1,21 +1,39 @@
 # marimo-operator
 
-A Kubernetes operator for deploying [marimo](https://marimo.io) notebooks.
+A Kubernetes operator for deploying [marimo](https://github.com/marimo-team/marimo) notebooks.
 
 ## Features
 
-- **Git-native deployment**: Clone notebooks directly from repositories
-- **Extensible sidecars**: Add SSH, git-sync, or custom containers
+- **Cloud storage integration**: Mount S3-compatible storage (cw://, sshfs://, rsync://)
 - **Persistent storage**: Browser edits persist across restarts
 - **Resource management**: Memory, CPU, and GPU allocation per notebook
+- **Extensible sidecars**: Add custom containers for advanced use cases
+
+## Prerequisites
+
+- Kubernetes cluster (v1.25+)
+- `kubectl` configured with cluster access
+- Cluster admin permissions (for CRD installation)
+
+## Installation
+
+```bash
+# Option 1: Install from single manifest
+kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/main/deploy/install.yaml
+
+# Option 2: Install via kustomize
+kubectl apply -k https://github.com/marimo-team/marimo-operator/config/default
+
+# Verify installation
+kubectl get pods -n marimo-operator-system
+# Should show: marimo-operator-controller-manager-xxx  Running
+```
 
 ## Quickstart
 
-```bash
-# Install the operator
-kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/main/deploy/install.yaml
+### Option 1: Deploy from Git
 
-# Deploy a notebook project
+```bash
 kubectl apply -f - <<EOF
 apiVersion: marimo.io/v1alpha1
 kind: MarimoNotebook
@@ -28,38 +46,63 @@ spec:
 EOF
 
 # Check status
-kubectl get marimonotebooks
+kubectl get marimos
 ```
 
-_Or_ deploy individual notebooks with the kubectl plugin:
+### Option 2: Use kubectl plugin for local files
 
 ```bash
 # Install plugin
-pip install kubectl-marimo  # or: kubectl krew install marimo
+pip install kubectl-marimo
 
-# Deploy a local notebook
-kubectl marimo apply notebook.py
+# Edit a notebook interactively (deploys to cluster)
+kubectl marimo edit notebook.py
 
-# Sync changes back
+# Run as read-only app
+kubectl marimo run notebook.py
+
+# Sync changes back to local file
 kubectl marimo sync notebook.py
+```
+
+### Verify your notebook is running
+
+```bash
+# Check pod status
+kubectl get pods
+
+# View logs
+kubectl logs <pod-name> -c marimo
+
+# Port-forward to access
+kubectl port-forward svc/my-project 2718:2718
+# Open http://localhost:2718
 ```
 
 ## Usage
 
-### Deploy from Git
+### Source vs Content
+
+Use **`source`** for Git repositories (cloned into persistent storage):
 
 ```yaml
-apiVersion: marimo.io/v1alpha1
-kind: MarimoNotebook
-metadata:
-  name: my-project
 spec:
   source: https://github.com/org/notebooks.git
   storage:
     size: 1Gi
 ```
 
-The operator clones the repository into persistent storage and starts the marimo server.
+Use **`content`** for inline notebook code (via kubectl plugin or ConfigMap):
+
+```yaml
+spec:
+  content: |
+    import marimo
+    app = marimo.App()
+    @app.cell
+    def _():
+        return "Hello!"
+```
 
 ### Add Sidecars
 
@@ -114,6 +157,13 @@ spec:
 
 ### Authentication
 
+By default, marimo generates an authentication token (check pod logs). To use a password:
+
+```bash
+# Create secret
+kubectl create secret generic marimo-auth --from-literal=password=your-password
+```
+
 ```yaml
 spec:
   auth:
@@ -123,27 +173,57 @@ spec:
         key: password
 ```
 
+To disable authentication (not recommended for production):
+
+```yaml
+spec:
+  auth: {}
+```
+
+## Troubleshooting
+
+```bash
+# Check operator logs
+kubectl logs -n marimo-operator-system -l control-plane=controller-manager
+
+# Check notebook status
+kubectl describe marimo <name>
+
+# Check pod events
+kubectl get events --field-selector involvedObject.name=<pod-name>
+
+# Common issues:
+# - "Pending" pod: Check storage class exists, PVC can be created
+# - "ImagePullBackOff": Check image name and registry access
+# - "CrashLoopBackOff": Check container logs for errors
+```
+
 ## kubectl Plugin
 
-For deploying individual notebooks from local files. See [docs/PLUGIN.md](docs/PLUGIN.md) for details.
+For deploying individual notebooks from local files. See [plugin/README.md](plugin/README.md) for details.
 
 ```bash
 pip install kubectl-marimo
-kubectl marimo apply notebook.py
+
+# Interactive editing
+kubectl marimo edit notebook.py
+
+# Read-only app mode
+kubectl marimo run notebook.py
+
+# With S3 storage (CoreWeave)
+kubectl marimo edit --source=cw://bucket/data notebook.py
+
+# Sync changes back and clean up
 kubectl marimo sync notebook.py
-kubectl marimo delete notebook.py             # PVC preserved by default
-kubectl marimo delete notebook.py --delete-pvc  # Also delete storage
+kubectl marimo delete notebook.py
 ```
 
-## Architecture
+## Documentation
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design decisions.
-
-## Installation
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/main/deploy/install.yaml
-```
+- [Architecture](docs/ARCHITECTURE.md) - Design decisions and CRD schema
+- [Plugin Guide](plugin/README.md) - kubectl-marimo usage
+- [CoreWeave S3 Mounts](plugin/docs/cw-mounts.md) - S3 storage integration
 
 ## Development
 

@@ -1,0 +1,54 @@
+[project]
+name = "kubectl-marimo"
+version = "0.1.1"
+description = "kubectl plugin for deploying marimo notebooks to Kubernetes"
+readme = "README.md"
+license = {text = "Apache-2.0"}
+requires-python = ">=3.10"
+authors = [
+    {name = "marimo-team"}
+]
+keywords = ["kubernetes", "kubectl", "plugin", "marimo", "notebook"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Software Development",
+]
+dependencies = [
+    "click>=8.0",
+    "pyyaml>=6.0",
+    "kubernetes>=28.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/marimo-team/marimo-operator"
+Documentation = "https://github.com/marimo-team/marimo-operator/tree/main/plugin"
+Repository = "https://github.com/marimo-team/marimo-operator"
+Issues = "https://github.com/marimo-team/marimo-operator/issues"
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-mock>=3.0",
+]
+
+[project.scripts]
+kubectl-marimo = "kubectl_marimo.main:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["kubectl_marimo"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
