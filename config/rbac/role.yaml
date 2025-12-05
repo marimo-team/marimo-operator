@@ -28,7 +28,7 @@ rules:
 - apiGroups:
   - marimo.io
   resources:
-  - marimonotebooks
+  - marimos
   verbs:
   - create
   - delete
@@ -40,13 +40,13 @@ rules:
 - apiGroups:
   - marimo.io
   resources:
-  - marimonotebooks/finalizers
+  - marimos/finalizers
   verbs:
   - update
 - apiGroups:
   - marimo.io
   resources:
-  - marimonotebooks/status
+  - marimos/status
   verbs:
   - get
   - patch

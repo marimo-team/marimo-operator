@@ -158,12 +158,12 @@ type MarimoNotebookStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
-// +kubebuilder:resource:shortName=marimo;mo
+// +kubebuilder:resource:singular=marimo,shortName=mo,path=marimos
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
 // +kubebuilder:printcolumn:name="URL",type=string,JSONPath=`.status.url`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 
-// MarimoNotebook is the Schema for the marimonotebooks API.
+// MarimoNotebook is the Schema for the marimos API.
 // It deploys a marimo notebook server with optional sidecars and persistent storage.
 type MarimoNotebook struct {
 	metav1.TypeMeta   `json:",inline"`

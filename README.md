@@ -28,7 +28,7 @@ spec:
 EOF
 
 # Check status
-kubectl get marimonotebooks
+kubectl get marimos
 ```
 
 _Or_ deploy individual notebooks with the kubectl plugin:

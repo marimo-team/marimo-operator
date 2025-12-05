@@ -4,17 +4,16 @@ kind: CustomResourceDefinition
 metadata:
   annotations:
     controller-gen.kubebuilder.io/version: v0.19.0
-  name: marimonotebooks.marimo.io
+  name: marimos.marimo.io
 spec:
   group: marimo.io
   names:
     kind: MarimoNotebook
     listKind: MarimoNotebookList
-    plural: marimonotebooks
+    plural: marimos
     shortNames:
-    - marimo
     - mo
-    singular: marimonotebook
+    singular: marimo
   scope: Namespaced
   versions:
   - additionalPrinterColumns:
@@ -31,7 +30,7 @@ spec:
     schema:
       openAPIV3Schema:
         description: |-
-          MarimoNotebook is the Schema for the marimonotebooks API.
+          MarimoNotebook is the Schema for the marimos API.
           It deploys a marimo notebook server with optional sidecars and persistent storage.
         properties:
           apiVersion:

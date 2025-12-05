@@ -39,9 +39,9 @@ type MarimoNotebookReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=marimo.io,resources=marimonotebooks,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=marimo.io,resources=marimonotebooks/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=marimo.io,resources=marimonotebooks/finalizers,verbs=update
+// +kubebuilder:rbac:groups=marimo.io,resources=marimos,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=marimo.io,resources=marimos/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=marimo.io,resources=marimos/finalizers,verbs=update
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
@@ -255,6 +255,6 @@ func (r *MarimoNotebookReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Pod{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
-		Named("marimonotebook").
+		Named("marimo").
 		Complete(r)
 }
