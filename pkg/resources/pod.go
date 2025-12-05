@@ -112,26 +112,35 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	// Final argument: notebook directory
 	args = append(args, NotebookDir)
 
+	// Build main containers list starting with marimo
+	containers := []corev1.Container{
+		{
+			Name:    "marimo",
+			Image:   notebook.Spec.Image,
+			Command: []string{"marimo"},
+			Args:    args,
+			Ports: []corev1.ContainerPort{
+				{
+					Name:          "http",
+					ContainerPort: notebook.Spec.Port,
+					Protocol:      corev1.ProtocolTCP,
+				},
+			},
+			VolumeMounts: volumeMounts,
+			Resources:    buildResourceRequirements(notebook.Spec.Resources),
+		},
+	}
+
+	// Add sidecar containers (they share the PVC volume)
+	for _, sidecar := range notebook.Spec.Sidecars {
+		container := buildSidecarContainer(sidecar, volumeMounts)
+		containers = append(containers, container)
+	}
+
 	basePodSpec := corev1.PodSpec{
 		InitContainers: initContainers,
-		Containers: []corev1.Container{
-			{
-				Name:    "marimo",
-				Image:   notebook.Spec.Image,
-				Command: []string{"marimo"},
-				Args:    args,
-				Ports: []corev1.ContainerPort{
-					{
-						Name:          "http",
-						ContainerPort: notebook.Spec.Port,
-						Protocol:      corev1.ProtocolTCP,
-					},
-				},
-				VolumeMounts: volumeMounts,
-				Resources:    buildResourceRequirements(notebook.Spec.Resources),
-			},
-		},
-		Volumes: volumes,
+		Containers:     containers,
+		Volumes:        volumes,
 	}
 
 	// Apply podOverrides if specified
@@ -147,6 +156,37 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		},
 		Spec: basePodSpec,
 	}
+}
+
+// buildSidecarContainer creates a container spec from a SidecarSpec.
+// Sidecars share the PVC volume with the main marimo container.
+func buildSidecarContainer(sidecar marimov1alpha1.SidecarSpec, volumeMounts []corev1.VolumeMount) corev1.Container {
+	container := corev1.Container{
+		Name:         sidecar.Name,
+		Image:        sidecar.Image,
+		Env:          sidecar.Env,
+		Command:      sidecar.Command,
+		Args:         sidecar.Args,
+		VolumeMounts: volumeMounts, // Share PVC volume
+	}
+
+	// Add port if ExposePort is set
+	if sidecar.ExposePort != nil {
+		container.Ports = []corev1.ContainerPort{
+			{
+				Name:          sidecar.Name,
+				ContainerPort: *sidecar.ExposePort,
+				Protocol:      corev1.ProtocolTCP,
+			},
+		}
+	}
+
+	// Add resources if specified
+	if sidecar.Resources != nil {
+		container.Resources = *sidecar.Resources
+	}
+
+	return container
 }
 
 // buildResourceRequirements converts ResourcesSpec to corev1.ResourceRequirements.

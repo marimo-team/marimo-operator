@@ -498,3 +498,314 @@ func containsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+func TestBuildPod_WithSidecar(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Storage: &marimov1alpha1.StorageSpec{
+				Size: "5Gi",
+			},
+			Sidecars: []marimov1alpha1.SidecarSpec{
+				{
+					Name:  "sshd",
+					Image: "linuxserver/openssh-server:latest",
+				},
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Should have 2 containers: marimo + sidecar
+	if len(pod.Spec.Containers) != 2 {
+		t.Fatalf("expected 2 containers, got %d", len(pod.Spec.Containers))
+	}
+
+	// Check marimo container is first
+	if pod.Spec.Containers[0].Name != "marimo" {
+		t.Errorf("expected first container to be 'marimo', got '%s'", pod.Spec.Containers[0].Name)
+	}
+
+	// Check sidecar container
+	sidecar := pod.Spec.Containers[1]
+	if sidecar.Name != "sshd" {
+		t.Errorf("expected sidecar name 'sshd', got '%s'", sidecar.Name)
+	}
+	if sidecar.Image != "linuxserver/openssh-server:latest" {
+		t.Errorf("expected sidecar image 'linuxserver/openssh-server:latest', got '%s'", sidecar.Image)
+	}
+
+	// Sidecar should share the PVC volume mount
+	var foundMount bool
+	for _, vm := range sidecar.VolumeMounts {
+		if vm.Name == PVCVolumeName && vm.MountPath == NotebookDir {
+			foundMount = true
+			break
+		}
+	}
+	if !foundMount {
+		t.Errorf("sidecar should share PVC volume mount at %s", NotebookDir)
+	}
+}
+
+func TestBuildPod_SidecarWithExposePort(t *testing.T) {
+	port := int32(22)
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Storage: &marimov1alpha1.StorageSpec{
+				Size: "5Gi",
+			},
+			Sidecars: []marimov1alpha1.SidecarSpec{
+				{
+					Name:       "sshd",
+					Image:      "linuxserver/openssh-server:latest",
+					ExposePort: &port,
+				},
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	sidecar := pod.Spec.Containers[1]
+
+	// Sidecar should have port exposed
+	if len(sidecar.Ports) != 1 {
+		t.Fatalf("expected 1 port on sidecar, got %d", len(sidecar.Ports))
+	}
+	if sidecar.Ports[0].ContainerPort != 22 {
+		t.Errorf("expected sidecar port 22, got %d", sidecar.Ports[0].ContainerPort)
+	}
+	if sidecar.Ports[0].Name != "sshd" {
+		t.Errorf("expected port name 'sshd', got '%s'", sidecar.Ports[0].Name)
+	}
+}
+
+func TestBuildPod_SidecarWithEnvCommandArgs(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Storage: &marimov1alpha1.StorageSpec{
+				Size: "5Gi",
+			},
+			Sidecars: []marimov1alpha1.SidecarSpec{
+				{
+					Name:  "git-sync",
+					Image: "registry.k8s.io/git-sync/git-sync:v4.2.1",
+					Env: []corev1.EnvVar{
+						{Name: "GITSYNC_REPO", Value: "https://github.com/example/repo.git"},
+						{Name: "GITSYNC_PERIOD", Value: "30s"},
+					},
+					Command: []string{"/git-sync"},
+					Args:    []string{"--one-time"},
+				},
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	sidecar := pod.Spec.Containers[1]
+
+	// Check env vars
+	if len(sidecar.Env) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(sidecar.Env))
+	}
+	if sidecar.Env[0].Name != "GITSYNC_REPO" {
+		t.Errorf("expected first env var name 'GITSYNC_REPO', got '%s'", sidecar.Env[0].Name)
+	}
+	if sidecar.Env[1].Value != "30s" {
+		t.Errorf("expected GITSYNC_PERIOD='30s', got '%s'", sidecar.Env[1].Value)
+	}
+
+	// Check command and args
+	if len(sidecar.Command) != 1 || sidecar.Command[0] != "/git-sync" {
+		t.Errorf("expected command '/git-sync', got %v", sidecar.Command)
+	}
+	if len(sidecar.Args) != 1 || sidecar.Args[0] != "--one-time" {
+		t.Errorf("expected args '--one-time', got %v", sidecar.Args)
+	}
+}
+
+func TestBuildPod_SidecarWithResources(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Storage: &marimov1alpha1.StorageSpec{
+				Size: "5Gi",
+			},
+			Sidecars: []marimov1alpha1.SidecarSpec{
+				{
+					Name:  "helper",
+					Image: "busybox:latest",
+					Resources: &corev1.ResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("50m"),
+							corev1.ResourceMemory: resource.MustParse("64Mi"),
+						},
+						Limits: corev1.ResourceList{
+							corev1.ResourceCPU:    resource.MustParse("100m"),
+							corev1.ResourceMemory: resource.MustParse("128Mi"),
+						},
+					},
+				},
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	sidecar := pod.Spec.Containers[1]
+
+	// Check resources
+	if cpu := sidecar.Resources.Requests.Cpu(); cpu.String() != "50m" {
+		t.Errorf("expected CPU request '50m', got '%s'", cpu.String())
+	}
+	if mem := sidecar.Resources.Requests.Memory(); mem.String() != "64Mi" {
+		t.Errorf("expected memory request '64Mi', got '%s'", mem.String())
+	}
+	if cpu := sidecar.Resources.Limits.Cpu(); cpu.String() != "100m" {
+		t.Errorf("expected CPU limit '100m', got '%s'", cpu.String())
+	}
+	if mem := sidecar.Resources.Limits.Memory(); mem.String() != "128Mi" {
+		t.Errorf("expected memory limit '128Mi', got '%s'", mem.String())
+	}
+}
+
+func TestBuildPod_MultipleSidecars(t *testing.T) {
+	sshPort := int32(22)
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Storage: &marimov1alpha1.StorageSpec{
+				Size: "5Gi",
+			},
+			Sidecars: []marimov1alpha1.SidecarSpec{
+				{
+					Name:       "sshd",
+					Image:      "linuxserver/openssh-server:latest",
+					ExposePort: &sshPort,
+				},
+				{
+					Name:  "git-sync",
+					Image: "registry.k8s.io/git-sync/git-sync:v4.2.1",
+				},
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Should have 3 containers: marimo + 2 sidecars
+	if len(pod.Spec.Containers) != 3 {
+		t.Fatalf("expected 3 containers, got %d", len(pod.Spec.Containers))
+	}
+
+	// Check container order
+	if pod.Spec.Containers[0].Name != "marimo" {
+		t.Errorf("expected first container 'marimo', got '%s'", pod.Spec.Containers[0].Name)
+	}
+	if pod.Spec.Containers[1].Name != "sshd" {
+		t.Errorf("expected second container 'sshd', got '%s'", pod.Spec.Containers[1].Name)
+	}
+	if pod.Spec.Containers[2].Name != "git-sync" {
+		t.Errorf("expected third container 'git-sync', got '%s'", pod.Spec.Containers[2].Name)
+	}
+
+	// All sidecars should share the volume
+	for i := 1; i < len(pod.Spec.Containers); i++ {
+		sidecar := pod.Spec.Containers[i]
+		var foundMount bool
+		for _, vm := range sidecar.VolumeMounts {
+			if vm.Name == PVCVolumeName {
+				foundMount = true
+				break
+			}
+		}
+		if !foundMount {
+			t.Errorf("sidecar %s should have PVC volume mount", sidecar.Name)
+		}
+	}
+}
+
+func TestBuildSidecarContainer(t *testing.T) {
+	port := int32(8080)
+	sidecar := marimov1alpha1.SidecarSpec{
+		Name:       "test-sidecar",
+		Image:      "test-image:latest",
+		ExposePort: &port,
+		Env: []corev1.EnvVar{
+			{Name: "FOO", Value: "bar"},
+		},
+		Command: []string{"/bin/sh"},
+		Args:    []string{"-c", "echo hello"},
+		Resources: &corev1.ResourceRequirements{
+			Limits: corev1.ResourceList{
+				corev1.ResourceMemory: resource.MustParse("256Mi"),
+			},
+		},
+	}
+
+	volumeMounts := []corev1.VolumeMount{
+		{Name: "data", MountPath: "/data"},
+	}
+
+	container := buildSidecarContainer(sidecar, volumeMounts)
+
+	if container.Name != "test-sidecar" {
+		t.Errorf("expected name 'test-sidecar', got '%s'", container.Name)
+	}
+	if container.Image != "test-image:latest" {
+		t.Errorf("expected image 'test-image:latest', got '%s'", container.Image)
+	}
+	if len(container.Ports) != 1 || container.Ports[0].ContainerPort != 8080 {
+		t.Errorf("expected port 8080, got %v", container.Ports)
+	}
+	if len(container.Env) != 1 || container.Env[0].Value != "bar" {
+		t.Errorf("expected env FOO=bar, got %v", container.Env)
+	}
+	if len(container.Command) != 1 || container.Command[0] != "/bin/sh" {
+		t.Errorf("expected command '/bin/sh', got %v", container.Command)
+	}
+	if len(container.Args) != 2 || container.Args[1] != "echo hello" {
+		t.Errorf("expected args '-c echo hello', got %v", container.Args)
+	}
+	if mem := container.Resources.Limits.Memory(); mem.String() != "256Mi" {
+		t.Errorf("expected memory limit '256Mi', got '%s'", mem.String())
+	}
+	if len(container.VolumeMounts) != 1 || container.VolumeMounts[0].MountPath != "/data" {
+		t.Errorf("expected volume mount at /data, got %v", container.VolumeMounts)
+	}
+}

@@ -289,6 +289,86 @@ var _ = Describe("MarimoNotebook Controller", func() {
 		})
 	})
 
+	Context("When creating a MarimoNotebook with sidecars", func() {
+		It("should create Pod with sidecar containers", func() {
+			sshPort := int32(22)
+			notebook := &marimov1alpha1.MarimoNotebook{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-sidecar-" + randString(5),
+					Namespace: "default",
+				},
+				Spec: marimov1alpha1.MarimoNotebookSpec{
+					Source: "https://github.com/marimo-team/marimo.git",
+					Storage: &marimov1alpha1.StorageSpec{
+						Size: "1Gi",
+					},
+					Sidecars: []marimov1alpha1.SidecarSpec{
+						{
+							Name:       "sshd",
+							Image:      "linuxserver/openssh-server:latest",
+							ExposePort: &sshPort,
+							Env: []corev1.EnvVar{
+								{Name: "PASSWORD_ACCESS", Value: "true"},
+							},
+						},
+					},
+				},
+			}
+			namespacedName := types.NamespacedName{
+				Name:      notebook.Name,
+				Namespace: notebook.Namespace,
+			}
+
+			defer func() {
+				_ = k8sClient.Delete(ctx, notebook)
+			}()
+
+			By("creating the MarimoNotebook with sidecar")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("checking that Pod has sidecar container")
+			pod := &corev1.Pod{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, pod)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(pod.Spec.Containers).To(HaveLen(2))
+			Expect(pod.Spec.Containers[0].Name).To(Equal("marimo"))
+			Expect(pod.Spec.Containers[1].Name).To(Equal("sshd"))
+			Expect(pod.Spec.Containers[1].Image).To(Equal("linuxserver/openssh-server:latest"))
+
+			By("checking sidecar has port exposed")
+			Expect(pod.Spec.Containers[1].Ports).To(HaveLen(1))
+			Expect(pod.Spec.Containers[1].Ports[0].ContainerPort).To(Equal(int32(22)))
+
+			By("checking sidecar has env vars")
+			var foundEnv bool
+			for _, env := range pod.Spec.Containers[1].Env {
+				if env.Name == "PASSWORD_ACCESS" && env.Value == "true" {
+					foundEnv = true
+					break
+				}
+			}
+			Expect(foundEnv).To(BeTrue(), "sidecar should have PASSWORD_ACCESS env var")
+
+			By("checking Service exposes sidecar port")
+			svc := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, svc)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(svc.Spec.Ports).To(HaveLen(2))
+			var foundSSHPort bool
+			for _, port := range svc.Spec.Ports {
+				if port.Name == "sshd" && port.Port == 22 {
+					foundSSHPort = true
+					break
+				}
+			}
+			Expect(foundSSHPort).To(BeTrue(), "Service should expose sshd port")
+		})
+	})
+
 	Context("When deleting a MarimoNotebook", func() {
 		It("should clean up owned resources via garbage collection", func() {
 			notebook := &marimov1alpha1.MarimoNotebook{
