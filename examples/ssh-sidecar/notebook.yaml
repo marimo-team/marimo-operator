@@ -1,0 +1,55 @@
+# SSH Sidecar Example
+# This deploys a marimo notebook with an SSH server sidecar
+# allowing direct file access via SFTP/SCP
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: ssh-notebook
+  namespace: default
+spec:
+  source: "https://github.com/marimo-team/examples.git"
+
+  # Persistent storage (required for sidecars)
+  storage:
+    size: "5Gi"
+
+  # Disable auth for examples (empty auth block = --no-token)
+  auth: {}
+
+  # SSH sidecar for remote file access
+  sidecars:
+    - name: sshd
+      image: linuxserver/openssh-server:latest
+      exposePort: 2222
+      env:
+        # Enable password authentication
+        - name: PASSWORD_ACCESS
+          value: "true"
+        # Set a default user password (for demo only - use secrets in production!)
+        - name: USER_PASSWORD
+          value: "marimo"
+        # User to create
+        - name: USER_NAME
+          value: "marimo"
+        # Map to correct UID for file ownership
+        - name: PUID
+          value: "1000"
+        - name: PGID
+          value: "1000"
+---
+# For production, use a Secret for the SSH password:
+# apiVersion: v1
+# kind: Secret
+# metadata:
+#   name: ssh-credentials
+# type: Opaque
+# stringData:
+#   password: "your-secure-password"
+#
+# Then reference it in the sidecar env:
+# env:
+#   - name: USER_PASSWORD
+#     valueFrom:
+#       secretKeyRef:
+#         name: ssh-credentials
+#         key: password

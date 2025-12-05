@@ -48,7 +48,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		}
 	}
 
-	// Init container clones from git source (idempotent - skips if content exists)
+	// Init containers: git-clone and venv setup
 	initContainers = []corev1.Container{
 		{
 			Name:  "git-clone",
@@ -63,14 +63,33 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 				{Name: PVCVolumeName, MountPath: NotebookDir},
 			},
 		},
+		{
+			Name:  "setup-venv",
+			Image: notebook.Spec.Image,
+			Command: []string{"sh", "-c",
+				"if [ ! -f /opt/venv/bin/python ]; then echo 'Creating venv...'; uv venv /opt/venv; fi",
+			},
+			VolumeMounts: []corev1.VolumeMount{
+				{Name: "venv", MountPath: "/opt/venv"},
+			},
+		},
 	}
+
+	// Add venv volume (emptyDir, shared between init and main container)
+	volumes = append(volumes, corev1.Volume{
+		Name: "venv",
+		VolumeSource: corev1.VolumeSource{
+			EmptyDir: &corev1.EmptyDirVolumeSource{},
+		},
+	})
 
 	volumeMounts = []corev1.VolumeMount{
 		{Name: PVCVolumeName, MountPath: NotebookDir},
+		{Name: "venv", MountPath: "/opt/venv"},
 	}
 
-	// Build marimo command args
-	args := []string{
+	// Build marimo command args (will be passed to shell wrapper)
+	marimoArgs := []string{
 		"edit",
 		"--headless",
 		"--host=0.0.0.0",
@@ -83,7 +102,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	// - auth present but empty: explicit opt-in to --no-token
 	if notebook.Spec.Auth != nil {
 		if notebook.Spec.Auth.Password != nil {
-			args = append(args, "--token-password-file", "/etc/marimo/password")
+			marimoArgs = append(marimoArgs, "--token-password-file", "/etc/marimo/password")
 			volumes = append(volumes, corev1.Volume{
 				Name: "auth-secret",
 				VolumeSource: corev1.VolumeSource{
@@ -105,20 +124,32 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 			})
 		} else {
 			// auth block present but no password = opt-in to disable auth
-			args = append(args, "--no-token")
+			marimoArgs = append(marimoArgs, "--no-token")
 		}
 	}
 
 	// Final argument: notebook directory
-	args = append(args, NotebookDir)
+	marimoArgs = append(marimoArgs, NotebookDir)
 
 	// Build main containers list starting with marimo
+	// Command and args are passed directly - no shell wrapper needed
 	containers := []corev1.Container{
 		{
-			Name:    "marimo",
-			Image:   notebook.Spec.Image,
-			Command: []string{"marimo"},
-			Args:    args,
+			Name:       "marimo",
+			Image:      notebook.Spec.Image,
+			WorkingDir: NotebookDir,
+			Command:    []string{"marimo"},
+			Args:       marimoArgs,
+			Env: []corev1.EnvVar{
+				// UV/venv environment configuration
+				{Name: "VIRTUAL_ENV", Value: "/opt/venv"},
+				{Name: "UV_PROJECT_ENVIRONMENT", Value: "/opt/venv"},
+				{Name: "UV", Value: "/usr/bin/uv"},
+				{Name: "UV_SYSTEM_PYTHON", Value: "1"},
+				// TODO: Update this
+				{Name: "MODAL_TASK_ID", Value: "1"},
+				{Name: "PYTHONPATH", Value: "/usr/local/lib/python3.13/site-packages/:/opt/venv/lib/python3.13/site-packages/"},
+			},
 			Ports: []corev1.ContainerPort{
 				{
 					Name:          "http",

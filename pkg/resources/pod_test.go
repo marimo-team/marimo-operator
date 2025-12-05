@@ -52,8 +52,18 @@ func TestBuildPod_BasicConfig(t *testing.T) {
 	if container.Image != "ghcr.io/marimo-team/marimo:latest" {
 		t.Errorf("expected image 'ghcr.io/marimo-team/marimo:latest', got '%s'", container.Image)
 	}
+	// Command should run marimo directly (no shell wrapper)
 	if container.Command[0] != "marimo" {
 		t.Errorf("expected command 'marimo', got '%s'", container.Command[0])
+	}
+	// Args should contain the marimo arguments
+	if len(container.Args) == 0 {
+		t.Error("expected marimo args to be set")
+	}
+
+	// Check working directory
+	if container.WorkingDir != NotebookDir {
+		t.Errorf("expected working dir '%s', got '%s'", NotebookDir, container.WorkingDir)
 	}
 
 	// Check port
@@ -61,16 +71,20 @@ func TestBuildPod_BasicConfig(t *testing.T) {
 		t.Errorf("expected port 2718, got %v", container.Ports)
 	}
 
-	// Check init container
-	if len(pod.Spec.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(pod.Spec.InitContainers))
+	// Check init containers (git-clone and setup-venv)
+	if len(pod.Spec.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(pod.Spec.InitContainers))
 	}
-	initContainer := pod.Spec.InitContainers[0]
-	if initContainer.Name != "git-clone" {
-		t.Errorf("expected init container name 'git-clone', got '%s'", initContainer.Name)
+	gitClone := pod.Spec.InitContainers[0]
+	if gitClone.Name != "git-clone" {
+		t.Errorf("expected first init container name 'git-clone', got '%s'", gitClone.Name)
 	}
-	if initContainer.Image != "alpine/git:latest" {
-		t.Errorf("expected init image 'alpine/git:latest', got '%s'", initContainer.Image)
+	if gitClone.Image != "alpine/git:latest" {
+		t.Errorf("expected init image 'alpine/git:latest', got '%s'", gitClone.Image)
+	}
+	setupVenv := pod.Spec.InitContainers[1]
+	if setupVenv.Name != "setup-venv" {
+		t.Errorf("expected second init container name 'setup-venv', got '%s'", setupVenv.Name)
 	}
 
 	// Check volume mounts
@@ -107,7 +121,7 @@ func TestBuildPod_AuthNil_NoTokenFlag(t *testing.T) {
 	container := pod.Spec.Containers[0]
 
 	// Auth nil means auto-generate token (secure by default)
-	// Should NOT have --no-token
+	// Args should NOT have --no-token
 	for _, arg := range container.Args {
 		if arg == "--no-token" {
 			t.Error("auth=nil should not have --no-token flag (secure by default)")
@@ -171,7 +185,7 @@ func TestBuildPod_AuthWithPassword(t *testing.T) {
 	pod := BuildPod(notebook)
 	container := pod.Spec.Containers[0]
 
-	// Should have --token-password-file
+	// Args should have --token-password-file
 	foundPasswordFile := false
 	for i, arg := range container.Args {
 		if arg == "--token-password-file" && i+1 < len(container.Args) {
@@ -305,7 +319,7 @@ func TestBuildPod_CustomPort(t *testing.T) {
 		t.Errorf("expected port 8080, got %d", container.Ports[0].ContainerPort)
 	}
 
-	// Check args contain correct port
+	// Check args contains correct port
 	foundPortArg := false
 	for _, arg := range container.Args {
 		if arg == "--port=8080" {
@@ -462,27 +476,37 @@ func TestBuildPod_InitContainer_IdempotentClone(t *testing.T) {
 
 	pod := BuildPod(notebook)
 
-	if len(pod.Spec.InitContainers) != 1 {
-		t.Fatalf("expected 1 init container, got %d", len(pod.Spec.InitContainers))
+	// Should have 2 init containers: git-clone and setup-venv
+	if len(pod.Spec.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(pod.Spec.InitContainers))
 	}
 
-	initContainer := pod.Spec.InitContainers[0]
-
-	// Check that init container command checks for existing repo
-	if len(initContainer.Command) < 3 {
-		t.Fatal("expected init container command with shell script")
+	// Check git-clone init container
+	gitClone := pod.Spec.InitContainers[0]
+	if gitClone.Name != "git-clone" {
+		t.Errorf("expected first init container 'git-clone', got '%s'", gitClone.Name)
 	}
-	script := initContainer.Command[2]
-
-	// Should check if .git exists before cloning
+	if len(gitClone.Command) < 3 {
+		t.Fatal("expected git-clone command with shell script")
+	}
+	script := gitClone.Command[2]
 	if !contains(script, "if [ -d") || !contains(script, ".git ]") {
-		t.Error("init container should check for existing .git directory")
+		t.Error("git-clone should check for existing .git directory")
 	}
 	if !contains(script, "skipping clone") {
-		t.Error("init container should skip clone if repo exists")
+		t.Error("git-clone should skip clone if repo exists")
 	}
 	if !contains(script, "git clone") {
-		t.Error("init container should clone if repo doesn't exist")
+		t.Error("git-clone should clone if repo doesn't exist")
+	}
+
+	// Check setup-venv init container
+	setupVenv := pod.Spec.InitContainers[1]
+	if setupVenv.Name != "setup-venv" {
+		t.Errorf("expected second init container 'setup-venv', got '%s'", setupVenv.Name)
+	}
+	if setupVenv.Image != "ghcr.io/marimo-team/marimo:latest" {
+		t.Errorf("setup-venv should use marimo image, got '%s'", setupVenv.Image)
 	}
 }
 

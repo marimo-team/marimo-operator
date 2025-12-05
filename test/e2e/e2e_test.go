@@ -267,16 +267,231 @@ var _ = Describe("Manager", Ordered, func() {
 		})
 
 		// +kubebuilder:scaffold:e2e-webhooks-checks
+	})
 
-		// TODO: Customize the e2e test suite with scenarios specific to your project.
-		// Consider applying sample/CR(s) and check their status and/or verifying
-		// the reconciliation by using the metrics, i.e.:
-		// metricsOutput, err := getMetricsOutput()
-		// Expect(err).NotTo(HaveOccurred(), "Failed to retrieve logs from curl pod")
-		// Expect(metricsOutput).To(ContainSubstring(
-		//    fmt.Sprintf(`controller_runtime_reconcile_total{controller="%s",result="success"} 1`,
-		//    strings.ToLower(<Kind>),
-		// ))
+	Context("MarimoNotebook", func() {
+		const testNamespace = "default"
+
+		AfterEach(func() {
+			// Clean up any test notebooks
+			cmd := exec.Command("kubectl", "delete", "marimo", "--all", "-n", testNamespace, "--ignore-not-found")
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should create Pod and Service for basic notebook", func() {
+			notebookName := "e2e-basic-notebook"
+
+			By("creating a basic MarimoNotebook")
+			notebookYAML := fmt.Sprintf(`
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  source: "https://github.com/marimo-team/marimo.git"
+`, notebookName, testNamespace)
+
+			yamlFile := filepath.Join("/tmp", notebookName+".yaml")
+			err := os.WriteFile(yamlFile, []byte(notebookYAML), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", yamlFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create MarimoNotebook")
+
+			By("verifying Pod is created")
+			verifyPodCreated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", notebookName, "-n", testNamespace, "-o", "jsonpath={.metadata.name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal(notebookName))
+			}
+			Eventually(verifyPodCreated, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("verifying Service is created")
+			verifyServiceCreated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "service", notebookName, "-n", testNamespace, "-o", "jsonpath={.spec.ports[0].port}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("2718"))
+			}
+			Eventually(verifyServiceCreated, time.Minute, time.Second).Should(Succeed())
+
+			By("verifying MarimoNotebook status is updated")
+			verifyStatusUpdated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "marimo", notebookName, "-n", testNamespace, "-o", "jsonpath={.status.podName}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal(notebookName))
+			}
+			Eventually(verifyStatusUpdated, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("verifying Pod has correct labels")
+			cmd = exec.Command("kubectl", "get", "pod", notebookName, "-n", testNamespace, "-o", "jsonpath={.metadata.labels.app\\.kubernetes\\.io/name}")
+			output, err := utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(output).To(Equal("marimo"))
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "marimo", notebookName, "-n", testNamespace)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred())
+
+			By("verifying Pod is deleted via garbage collection")
+			verifyPodDeleted := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", notebookName, "-n", testNamespace, "--ignore-not-found")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(BeEmpty())
+			}
+			Eventually(verifyPodDeleted, 2*time.Minute, time.Second).Should(Succeed())
+		})
+
+		It("should create PVC when storage is configured", func() {
+			notebookName := "e2e-pvc-notebook"
+
+			By("creating a MarimoNotebook with storage")
+			notebookYAML := fmt.Sprintf(`
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  source: "https://github.com/marimo-team/marimo.git"
+  storage:
+    size: "1Gi"
+`, notebookName, testNamespace)
+
+			yamlFile := filepath.Join("/tmp", notebookName+".yaml")
+			err := os.WriteFile(yamlFile, []byte(notebookYAML), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", yamlFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create MarimoNotebook")
+
+			By("verifying PVC is created")
+			verifyPVCCreated := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pvc", notebookName, "-n", testNamespace, "-o", "jsonpath={.spec.resources.requests.storage}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("1Gi"))
+			}
+			Eventually(verifyPVCCreated, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("verifying Pod mounts PVC")
+			verifyPodMountsPVC := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", notebookName, "-n", testNamespace, "-o", "jsonpath={.spec.volumes[?(@.persistentVolumeClaim)].persistentVolumeClaim.claimName}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal(notebookName))
+			}
+			Eventually(verifyPodMountsPVC, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "marimo", notebookName, "-n", testNamespace)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should support custom port configuration", func() {
+			notebookName := "e2e-custom-port"
+
+			By("creating a MarimoNotebook with custom port")
+			notebookYAML := fmt.Sprintf(`
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  source: "https://github.com/marimo-team/marimo.git"
+  port: 8080
+`, notebookName, testNamespace)
+
+			yamlFile := filepath.Join("/tmp", notebookName+".yaml")
+			err := os.WriteFile(yamlFile, []byte(notebookYAML), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", yamlFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create MarimoNotebook")
+
+			By("verifying Service uses custom port")
+			verifyCustomPort := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "service", notebookName, "-n", testNamespace, "-o", "jsonpath={.spec.ports[0].port}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("8080"))
+			}
+			Eventually(verifyCustomPort, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("verifying Pod container uses custom port")
+			verifyContainerPort := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", notebookName, "-n", testNamespace, "-o", "jsonpath={.spec.containers[0].ports[0].containerPort}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("8080"))
+			}
+			Eventually(verifyContainerPort, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "marimo", notebookName, "-n", testNamespace)
+			_, _ = utils.Run(cmd)
+		})
+
+		It("should create sidecar containers with exposed ports", func() {
+			notebookName := "e2e-sidecar"
+
+			By("creating a MarimoNotebook with sidecar")
+			notebookYAML := fmt.Sprintf(`
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  source: "https://github.com/marimo-team/marimo.git"
+  storage:
+    size: "1Gi"
+  sidecars:
+    - name: nginx
+      image: nginx:alpine
+      exposePort: 80
+`, notebookName, testNamespace)
+
+			yamlFile := filepath.Join("/tmp", notebookName+".yaml")
+			err := os.WriteFile(yamlFile, []byte(notebookYAML), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", yamlFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create MarimoNotebook")
+
+			By("verifying Pod has 2 containers")
+			verifyContainerCount := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", notebookName, "-n", testNamespace, "-o", "jsonpath={.spec.containers[*].name}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(ContainSubstring("marimo"))
+				g.Expect(output).To(ContainSubstring("nginx"))
+			}
+			Eventually(verifyContainerCount, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("verifying Service exposes sidecar port")
+			verifySidecarPort := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "service", notebookName, "-n", testNamespace, "-o", "jsonpath={.spec.ports[?(@.name=='nginx')].port}")
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("80"))
+			}
+			Eventually(verifySidecarPort, time.Minute, time.Second).Should(Succeed())
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "marimo", notebookName, "-n", testNamespace)
+			_, _ = utils.Run(cmd)
+		})
 	})
 })
 
