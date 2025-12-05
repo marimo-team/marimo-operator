@@ -362,3 +362,139 @@ func TestApplyPodOverrides_MergeContainerResources(t *testing.T) {
 		t.Errorf("expected memory limit '2Gi', got '%s'", mem.String())
 	}
 }
+
+func TestBuildPod_WithStorage_UsesPVC(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Storage: &marimov1alpha1.StorageSpec{
+				Size: "5Gi",
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Check that volume uses PVC
+	var foundPVCVolume bool
+	for _, vol := range pod.Spec.Volumes {
+		if vol.Name == PVCVolumeName {
+			if vol.PersistentVolumeClaim == nil {
+				t.Error("expected PVC volume source when storage is configured")
+			} else if vol.PersistentVolumeClaim.ClaimName != "test-notebook" {
+				t.Errorf("expected PVC claim name 'test-notebook', got '%s'", vol.PersistentVolumeClaim.ClaimName)
+			}
+			foundPVCVolume = true
+			break
+		}
+	}
+	if !foundPVCVolume {
+		t.Error("expected to find notebook-data volume")
+	}
+
+	// Check that main container mounts the volume
+	container := pod.Spec.Containers[0]
+	var foundMount bool
+	for _, vm := range container.VolumeMounts {
+		if vm.Name == PVCVolumeName && vm.MountPath == NotebookDir {
+			foundMount = true
+			break
+		}
+	}
+	if !foundMount {
+		t.Errorf("expected volume mount at %s", NotebookDir)
+	}
+}
+
+func TestBuildPod_WithoutStorage_UsesEmptyDir(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			// No storage configured
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Check that volume uses emptyDir
+	var foundEmptyDirVolume bool
+	for _, vol := range pod.Spec.Volumes {
+		if vol.Name == PVCVolumeName {
+			if vol.EmptyDir == nil {
+				t.Error("expected emptyDir volume source when storage is not configured")
+			}
+			foundEmptyDirVolume = true
+			break
+		}
+	}
+	if !foundEmptyDirVolume {
+		t.Error("expected to find notebook-data volume with emptyDir")
+	}
+}
+
+func TestBuildPod_InitContainer_IdempotentClone(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Storage: &marimov1alpha1.StorageSpec{
+				Size: "1Gi",
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	if len(pod.Spec.InitContainers) != 1 {
+		t.Fatalf("expected 1 init container, got %d", len(pod.Spec.InitContainers))
+	}
+
+	initContainer := pod.Spec.InitContainers[0]
+
+	// Check that init container command checks for existing repo
+	if len(initContainer.Command) < 3 {
+		t.Fatal("expected init container command with shell script")
+	}
+	script := initContainer.Command[2]
+
+	// Should check if .git exists before cloning
+	if !contains(script, "if [ -d") || !contains(script, ".git ]") {
+		t.Error("init container should check for existing .git directory")
+	}
+	if !contains(script, "skipping clone") {
+		t.Error("init container should skip clone if repo exists")
+	}
+	if !contains(script, "git clone") {
+		t.Error("init container should clone if repo doesn't exist")
+	}
+}
+
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
+}

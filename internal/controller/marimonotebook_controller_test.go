@@ -185,6 +185,110 @@ var _ = Describe("MarimoNotebook Controller", func() {
 		})
 	})
 
+	Context("When creating a MarimoNotebook with storage", func() {
+		It("should create PVC with correct size", func() {
+			notebook := &marimov1alpha1.MarimoNotebook{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-pvc-" + randString(5),
+					Namespace: "default",
+				},
+				Spec: marimov1alpha1.MarimoNotebookSpec{
+					Source: "https://github.com/marimo-team/marimo.git",
+					Storage: &marimov1alpha1.StorageSpec{
+						Size: "2Gi",
+					},
+				},
+			}
+			namespacedName := types.NamespacedName{
+				Name:      notebook.Name,
+				Namespace: notebook.Namespace,
+			}
+
+			defer func() {
+				_ = k8sClient.Delete(ctx, notebook)
+			}()
+
+			By("creating the MarimoNotebook with storage")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("checking that PVC is created")
+			pvc := &corev1.PersistentVolumeClaim{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, pvc)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(pvc.Spec.Resources.Requests.Storage().String()).To(Equal("2Gi"))
+			Expect(pvc.Spec.AccessModes).To(ContainElement(corev1.ReadWriteOnce))
+
+			By("checking PVC has owner reference")
+			Expect(pvc.OwnerReferences).To(HaveLen(1))
+			Expect(pvc.OwnerReferences[0].Kind).To(Equal("MarimoNotebook"))
+			Expect(pvc.OwnerReferences[0].Name).To(Equal(notebook.Name))
+
+			By("checking Pod uses PVC volume")
+			pod := &corev1.Pod{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, pod)
+			}, timeout, interval).Should(Succeed())
+
+			var foundPVCVolume bool
+			for _, vol := range pod.Spec.Volumes {
+				if vol.PersistentVolumeClaim != nil && vol.PersistentVolumeClaim.ClaimName == notebook.Name {
+					foundPVCVolume = true
+					break
+				}
+			}
+			Expect(foundPVCVolume).To(BeTrue(), "Pod should have PVC volume")
+		})
+
+		It("should not create PVC when storage is not specified", func() {
+			notebook := &marimov1alpha1.MarimoNotebook{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-no-pvc-" + randString(5),
+					Namespace: "default",
+				},
+				Spec: marimov1alpha1.MarimoNotebookSpec{
+					Source: "https://github.com/marimo-team/marimo.git",
+					// No storage configured
+				},
+			}
+			namespacedName := types.NamespacedName{
+				Name:      notebook.Name,
+				Namespace: notebook.Namespace,
+			}
+
+			defer func() {
+				_ = k8sClient.Delete(ctx, notebook)
+			}()
+
+			By("creating the MarimoNotebook without storage")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("waiting for Pod to be created")
+			pod := &corev1.Pod{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, pod)
+			}, timeout, interval).Should(Succeed())
+
+			By("checking that PVC is NOT created")
+			pvc := &corev1.PersistentVolumeClaim{}
+			Consistently(func() bool {
+				err := k8sClient.Get(ctx, namespacedName, pvc)
+				return client.IgnoreNotFound(err) == nil && err != nil
+			}, time.Second*2, interval).Should(BeTrue(), "PVC should not be created")
+
+			By("checking Pod uses emptyDir volume")
+			var foundEmptyDir bool
+			for _, vol := range pod.Spec.Volumes {
+				if vol.EmptyDir != nil {
+					foundEmptyDir = true
+					break
+				}
+			}
+			Expect(foundEmptyDir).To(BeTrue(), "Pod should have emptyDir volume when no storage")
+		})
+	})
+
 	Context("When deleting a MarimoNotebook", func() {
 		It("should clean up owned resources via garbage collection", func() {
 			notebook := &marimov1alpha1.MarimoNotebook{
