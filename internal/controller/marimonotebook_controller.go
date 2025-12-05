@@ -19,10 +19,13 @@ package controller
 import (
 	"context"
 
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
+
+	marimov1alpha1 "github.com/marimo-team/marimo-operator/api/v1alpha1"
 )
 
 // MarimoNotebookReconciler reconciles a MarimoNotebook object
@@ -31,9 +34,13 @@ type MarimoNotebookReconciler struct {
 	Scheme *runtime.Scheme
 }
 
-// +kubebuilder:rbac:groups=marimo.marimo.io,resources=marimonotebooks,verbs=get;list;watch;create;update;patch;delete
-// +kubebuilder:rbac:groups=marimo.marimo.io,resources=marimonotebooks/status,verbs=get;update;patch
-// +kubebuilder:rbac:groups=marimo.marimo.io,resources=marimonotebooks/finalizers,verbs=update
+// +kubebuilder:rbac:groups=marimo.io,resources=marimonotebooks,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups=marimo.io,resources=marimonotebooks/status,verbs=get;update;patch
+// +kubebuilder:rbac:groups=marimo.io,resources=marimonotebooks/finalizers,verbs=update
+// +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
 // move the current state of the cluster closer to the desired state.
@@ -55,8 +62,10 @@ func (r *MarimoNotebookReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 // SetupWithManager sets up the controller with the Manager.
 func (r *MarimoNotebookReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
-		// Uncomment the following line adding a pointer to an instance of the controlled resource as an argument
-		// For().
+		For(&marimov1alpha1.MarimoNotebook{}).
+		Owns(&corev1.Pod{}).
+		Owns(&corev1.Service{}).
+		Owns(&corev1.PersistentVolumeClaim{}).
 		Named("marimonotebook").
 		Complete(r)
 }
