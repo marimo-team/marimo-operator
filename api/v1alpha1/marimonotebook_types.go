@@ -74,7 +74,7 @@ type SidecarSpec struct {
 }
 
 // MarimoNotebookSpec defines the desired state of MarimoNotebook.
-// +kubebuilder:validation:XValidation:rule="!(size(self.sidecars) > 0 && !has(self.storage))",message="storage is required when sidecars are specified"
+// +kubebuilder:validation:XValidation:rule="!(has(self.sidecars) && size(self.sidecars) > 0 && !has(self.storage))",message="storage is required when sidecars are specified"
 type MarimoNotebookSpec struct {
 	// Image for marimo container
 	// +kubebuilder:default:="ghcr.io/marimo-team/marimo:latest"

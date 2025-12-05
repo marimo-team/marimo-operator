@@ -8765,7 +8765,7 @@ spec:
             type: object
             x-kubernetes-validations:
             - message: storage is required when sidecars are specified
-              rule: '!(size(self.sidecars) > 0 && !has(self.storage))'
+              rule: '!(has(self.sidecars) && size(self.sidecars) > 0 && !has(self.storage))'
           status:
             description: MarimoNotebookStatus defines the observed state of MarimoNotebook.
             properties:
