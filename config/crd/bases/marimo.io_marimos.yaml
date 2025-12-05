@@ -88,6 +88,11 @@ spec:
                     - secretKeyRef
                     type: object
                 type: object
+              content:
+                description: |-
+                  Content is inline notebook content (marimo .py or .md format)
+                  When set, operator creates a ConfigMap and mounts it
+                type: string
               image:
                 default: ghcr.io/marimo-team/marimo:latest
                 description: Image for marimo container
@@ -8759,12 +8764,14 @@ spec:
                       if empty)
                     type: string
                 type: object
-            required:
-            - source
             type: object
             x-kubernetes-validations:
             - message: storage is required when sidecars are specified
               rule: '!(has(self.sidecars) && size(self.sidecars) > 0 && !has(self.storage))'
+            - message: either source or content must be specified
+              rule: has(self.source) || has(self.content)
+            - message: source and content are mutually exclusive
+              rule: '!(has(self.source) && has(self.content))'
           status:
             description: MarimoNotebookStatus defines the observed state of MarimoNotebook.
             properties:

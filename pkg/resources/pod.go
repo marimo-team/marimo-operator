@@ -19,7 +19,9 @@ const (
 )
 
 // BuildPod creates a Pod spec for a MarimoNotebook.
-// For this base implementation, content is cloned from spec.Source (git URL).
+// Supports two content modes:
+// - source: clone from git URL
+// - content: mount from ConfigMap (created by operator)
 func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	var initContainers []corev1.Container
 	var volumeMounts []corev1.VolumeMount
@@ -48,32 +50,66 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		}
 	}
 
-	// Init containers: git-clone and venv setup
-	initContainers = []corev1.Container{
-		{
-			Name:  "git-clone",
-			Image: "alpine/git:latest",
-			Command: []string{"sh", "-c", fmt.Sprintf(
-				"if [ -d %s/.git ]; then echo 'Repository already exists, skipping clone'; else git clone --depth 1 %s %s; fi",
-				NotebookDir,
-				notebook.Spec.Source,
-				NotebookDir,
-			)},
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: PVCVolumeName, MountPath: NotebookDir},
+	// Content source: either git clone or ConfigMap copy
+	if notebook.Spec.Content != nil {
+		// Content mode: mount ConfigMap and copy to notebook dir
+		contentKey := DetectContentKey(*notebook.Spec.Content)
+		volumes = append(volumes, corev1.Volume{
+			Name: ConfigMapVolumeName,
+			VolumeSource: corev1.VolumeSource{
+				ConfigMap: &corev1.ConfigMapVolumeSource{
+					LocalObjectReference: corev1.LocalObjectReference{
+						Name: ConfigMapName(notebook.Name),
+					},
+				},
 			},
-		},
-		{
-			Name:  "setup-venv",
-			Image: notebook.Spec.Image,
-			Command: []string{"sh", "-c",
-				"if [ ! -f /opt/venv/bin/python ]; then echo 'Creating venv...'; uv venv /opt/venv; fi",
+		})
+		initContainers = []corev1.Container{
+			{
+				Name:  "copy-content",
+				Image: DefaultInitImage,
+				Command: []string{"sh", "-c", fmt.Sprintf(
+					"cp /content/%s %s/%s",
+					ContentKey,
+					NotebookDir,
+					contentKey,
+				)},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: PVCVolumeName, MountPath: NotebookDir},
+					{Name: ConfigMapVolumeName, MountPath: "/content", ReadOnly: true},
+				},
 			},
-			VolumeMounts: []corev1.VolumeMount{
-				{Name: "venv", MountPath: "/opt/venv"},
+		}
+	} else {
+		// Source mode: git clone
+		initContainers = []corev1.Container{
+			{
+				Name:  "git-clone",
+				Image: "alpine/git:latest",
+				Command: []string{"sh", "-c", fmt.Sprintf(
+					"if [ -d %s/.git ]; then echo 'Repository already exists, skipping clone'; else git clone --depth 1 %s %s; fi",
+					NotebookDir,
+					notebook.Spec.Source,
+					NotebookDir,
+				)},
+				VolumeMounts: []corev1.VolumeMount{
+					{Name: PVCVolumeName, MountPath: NotebookDir},
+				},
 			},
-		},
+		}
 	}
+
+	// Add venv setup init container
+	initContainers = append(initContainers, corev1.Container{
+		Name:  "setup-venv",
+		Image: notebook.Spec.Image,
+		Command: []string{"sh", "-c",
+			"if [ ! -f /opt/venv/bin/python ]; then echo 'Creating venv...'; uv venv /opt/venv; fi",
+		},
+		VolumeMounts: []corev1.VolumeMount{
+			{Name: "venv", MountPath: "/opt/venv"},
+		},
+	})
 
 	// Add venv volume (emptyDir, shared between init and main container)
 	volumes = append(volumes, corev1.Volume{

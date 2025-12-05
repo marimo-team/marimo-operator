@@ -784,6 +784,70 @@ func TestBuildPod_MultipleSidecars(t *testing.T) {
 	}
 }
 
+func TestBuildPod_WithContent(t *testing.T) {
+	content := `import marimo as mo
+app = mo.App()
+
+@app.cell
+def hello():
+    return mo.md("# Hello World")
+`
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:   "ghcr.io/marimo-team/marimo:latest",
+			Port:    2718,
+			Content: &content,
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Should have 2 init containers: copy-content and setup-venv (not git-clone)
+	if len(pod.Spec.InitContainers) != 2 {
+		t.Fatalf("expected 2 init containers, got %d", len(pod.Spec.InitContainers))
+	}
+	if pod.Spec.InitContainers[0].Name != "copy-content" {
+		t.Errorf("expected first init container 'copy-content', got '%s'", pod.Spec.InitContainers[0].Name)
+	}
+	if pod.Spec.InitContainers[1].Name != "setup-venv" {
+		t.Errorf("expected second init container 'setup-venv', got '%s'", pod.Spec.InitContainers[1].Name)
+	}
+
+	// Check that ConfigMap volume is present
+	var foundConfigMapVolume bool
+	for _, vol := range pod.Spec.Volumes {
+		if vol.Name == ConfigMapVolumeName {
+			if vol.ConfigMap == nil {
+				t.Error("expected ConfigMap volume source")
+			} else if vol.ConfigMap.Name != "test-notebook-content" {
+				t.Errorf("expected ConfigMap name 'test-notebook-content', got '%s'", vol.ConfigMap.Name)
+			}
+			foundConfigMapVolume = true
+			break
+		}
+	}
+	if !foundConfigMapVolume {
+		t.Error("expected to find ConfigMap volume")
+	}
+
+	// Check copy-content init container mounts ConfigMap
+	copyContent := pod.Spec.InitContainers[0]
+	var foundConfigMapMount bool
+	for _, vm := range copyContent.VolumeMounts {
+		if vm.Name == ConfigMapVolumeName && vm.MountPath == "/content" {
+			foundConfigMapMount = true
+			break
+		}
+	}
+	if !foundConfigMapMount {
+		t.Error("expected copy-content to mount ConfigMap at /content")
+	}
+}
+
 func TestBuildSidecarContainer(t *testing.T) {
 	port := int32(8080)
 	sidecar := marimov1alpha1.SidecarSpec{

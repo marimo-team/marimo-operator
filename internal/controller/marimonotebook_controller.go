@@ -45,6 +45,7 @@ type MarimoNotebookReconciler struct {
 // +kubebuilder:rbac:groups="",resources=pods,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=services,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=persistentvolumeclaims,verbs=get;list;watch;create;update;patch;delete
+// +kubebuilder:rbac:groups="",resources=configmaps,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups="",resources=events,verbs=create;patch
 
 // Reconcile is part of the main kubernetes reconciliation loop which aims to
@@ -68,28 +69,80 @@ func (r *MarimoNotebookReconciler) Reconcile(ctx context.Context, req ctrl.Reque
 		return ctrl.Result{}, nil
 	}
 
-	// 3. Reconcile PVC (if storage configured)
+	// 3. Reconcile ConfigMap (if content specified)
+	if err := r.reconcileConfigMap(ctx, notebook); err != nil {
+		logger.Error(err, "Failed to reconcile ConfigMap")
+		return ctrl.Result{}, err
+	}
+
+	// 4. Reconcile PVC (if storage configured)
 	if err := r.reconcilePVC(ctx, notebook); err != nil {
 		logger.Error(err, "Failed to reconcile PVC")
 		return ctrl.Result{}, err
 	}
 
-	// 4. Reconcile Pod
+	// 5. Reconcile Pod
 	pod, err := r.reconcilePod(ctx, notebook)
 	if err != nil {
 		logger.Error(err, "Failed to reconcile Pod")
 		return ctrl.Result{}, err
 	}
 
-	// 5. Reconcile Service
+	// 6. Reconcile Service
 	svc, err := r.reconcileService(ctx, notebook)
 	if err != nil {
 		logger.Error(err, "Failed to reconcile Service")
 		return ctrl.Result{}, err
 	}
 
-	// 6. Update Status
+	// 7. Update Status
 	return r.updateStatus(ctx, notebook, pod, svc)
+}
+
+func (r *MarimoNotebookReconciler) reconcileConfigMap(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook) error {
+	// Skip if no content specified (using source instead)
+	if notebook.Spec.Content == nil {
+		return nil
+	}
+
+	logger := logf.FromContext(ctx)
+	desired := resources.BuildConfigMap(notebook)
+	if desired == nil {
+		return nil
+	}
+
+	// Set owner reference for automatic garbage collection
+	if err := controllerutil.SetControllerReference(notebook, desired, r.Scheme); err != nil {
+		return err
+	}
+
+	// Check if ConfigMap exists
+	existing := &corev1.ConfigMap{}
+	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	if err != nil {
+		if k8serrors.IsNotFound(err) {
+			logger.Info("Creating ConfigMap", "name", desired.Name)
+			if err := r.Create(ctx, desired); err != nil {
+				if k8serrors.IsAlreadyExists(err) {
+					return nil // ConfigMap was created between Get and Create
+				}
+				return err
+			}
+			return nil
+		}
+		return err
+	}
+
+	// ConfigMap exists - update if content changed
+	if existing.Data[resources.ContentKey] != *notebook.Spec.Content {
+		logger.Info("Updating ConfigMap", "name", desired.Name)
+		existing.Data = desired.Data
+		if err := r.Update(ctx, existing); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (r *MarimoNotebookReconciler) reconcilePVC(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook) error {
@@ -215,8 +268,13 @@ func (r *MarimoNotebookReconciler) updateStatus(ctx context.Context, notebook *m
 		url = fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", svc.Name, svc.Namespace, notebook.Spec.Port)
 	}
 
-	// Compute source hash
-	sourceHash := fmt.Sprintf("%x", sha256.Sum256([]byte(notebook.Spec.Source)))[:12]
+	// Compute content/source hash
+	var sourceHash string
+	if notebook.Spec.Content != nil {
+		sourceHash = resources.ContentHash(*notebook.Spec.Content)
+	} else {
+		sourceHash = fmt.Sprintf("%x", sha256.Sum256([]byte(notebook.Spec.Source)))[:12]
+	}
 
 	// Get names safely
 	podName := ""
@@ -255,6 +313,7 @@ func (r *MarimoNotebookReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Owns(&corev1.Pod{}).
 		Owns(&corev1.Service{}).
 		Owns(&corev1.PersistentVolumeClaim{}).
+		Owns(&corev1.ConfigMap{}).
 		Named("marimo").
 		Complete(r)
 }

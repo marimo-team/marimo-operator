@@ -72,8 +72,9 @@ var _ = Describe("MarimoNotebook Controller", func() {
 
 			Expect(pod.Spec.Containers).To(HaveLen(1))
 			Expect(pod.Spec.Containers[0].Name).To(Equal("marimo"))
-			Expect(pod.Spec.InitContainers).To(HaveLen(1))
+			Expect(pod.Spec.InitContainers).To(HaveLen(2))
 			Expect(pod.Spec.InitContainers[0].Name).To(Equal("git-clone"))
+			Expect(pod.Spec.InitContainers[1].Name).To(Equal("setup-venv"))
 
 			By("checking that Service is created")
 			svc := &corev1.Service{}
