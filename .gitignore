@@ -26,5 +26,9 @@ go.work
 *.swo
 *~
 
+__marimo__/*
+__pycache__/*
+*.pyc
+
 # Kubeconfig might contain secrets
 *.kubeconfig
