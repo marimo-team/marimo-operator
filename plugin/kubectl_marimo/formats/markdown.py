@@ -3,6 +3,8 @@
 import re
 from typing import Any
 
+import yaml
+
 
 def parse_markdown(content: str) -> tuple[str, dict[str, Any] | None]:
     """Parse marimo markdown notebook.
@@ -16,6 +18,8 @@ def parse_markdown(content: str) -> tuple[str, dict[str, Any] | None]:
         - port: Marimo server port
         - storage: PVC size (e.g., "1Gi")
         - auth: "none" to disable authentication
+        - env: Environment variables (inline or secret refs)
+        - mounts: Data source URIs
 
     Returns (content, frontmatter_dict).
     """
@@ -40,21 +44,14 @@ def extract_frontmatter(content: str) -> dict[str, Any] | None:
     if end_idx is None:
         return None
 
-    # Parse frontmatter
-    fm = {}
-    for line in lines[1:end_idx]:
-        if ":" in line:
-            key, _, value = line.partition(":")
-            key = key.strip()
-            value = value.strip()
-            # Remove quotes if present
-            if value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
-            elif value.startswith("'") and value.endswith("'"):
-                value = value[1:-1]
-            fm[key] = value
+    # Extract raw frontmatter YAML
+    frontmatter_text = "\n".join(lines[1:end_idx])
 
-    return fm if fm else None
+    try:
+        fm = yaml.safe_load(frontmatter_text)
+        return fm if isinstance(fm, dict) else None
+    except yaml.YAMLError:
+        return None
 
 
 def is_marimo_markdown(content: str) -> bool:
@@ -64,7 +61,7 @@ def is_marimo_markdown(content: str) -> bool:
 
     # Check for marimo code blocks: ```python {.marimo} or ```{python marimo}
     has_marimo_blocks = bool(
-        re.search(r'```(?:python\s*\{\.marimo\}|\{python\s+marimo\})', content)
+        re.search(r"```(?:python\s*\{\.marimo\}|\{python\s+marimo\})", content)
     )
 
     return has_frontmatter or has_marimo_blocks

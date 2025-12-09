@@ -9,6 +9,7 @@ from .formats import parse_file
 from .k8s import delete_resource, exec_in_pod
 from .resources import compute_hash, resource_name, detect_content_type
 from .swap import read_swap_file, delete_swap_file
+from .sync import sync_local_mounts
 
 
 def delete_notebook(
@@ -46,7 +47,9 @@ def delete_notebook(
             if current_hash != meta.file_hash:
                 click.echo(f"Warning: Local file '{file_path}' modified since deploy.")
                 if not click.confirm("Overwrite with pod content?"):
-                    click.echo("Delete cancelled. Use --no-sync to delete without syncing.")
+                    click.echo(
+                        "Delete cancelled. Use --no-sync to delete without syncing."
+                    )
                     return
 
         # Determine notebook filename in pod
@@ -70,11 +73,17 @@ def delete_notebook(
             path.write_text(pod_content)
             click.echo(f"Synced content to {file_path}")
 
+        # Also sync local mounts if present
+        if meta.local_mounts:
+            sync_local_mounts(meta.name, namespace, meta.local_mounts)
+
     # Delete the MarimoNotebook resource
     # Note: PVC is deleted via owner reference unless keep_pvc is set
     if keep_pvc:
         click.echo("Note: --keep-pvc requires manual PVC deletion prevention")
-        click.echo(f"      kubectl patch pvc -n {namespace} {name}-pvc -p '{{\"metadata\":{{\"ownerReferences\":[]}}}}'")
+        click.echo(
+            f'      kubectl patch pvc -n {namespace} {name}-pvc -p \'{{"metadata":{{"ownerReferences":[]}}}}\''
+        )
 
     if not delete_resource("marimos.marimo.io", name, namespace):
         sys.exit(1)

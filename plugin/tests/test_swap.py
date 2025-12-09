@@ -1,7 +1,5 @@
 """Tests for swap file management."""
 
-import json
-import pytest
 from pathlib import Path
 
 from kubectl_marimo.swap import (
@@ -112,3 +110,55 @@ class TestSwapFileIO:
         notebook_file = tmp_path / "missing.py"
         result = delete_swap_file(str(notebook_file))
         assert result is False
+
+
+class TestSwapMetaWithMounts:
+    def test_to_dict_with_mounts(self):
+        meta = SwapMeta(
+            name="test",
+            namespace="default",
+            applied_at="2025-01-01T00:00:00Z",
+            original_file="/path/to/file.py",
+            file_hash="sha256:abc123",
+            local_mounts=[{"local": "/src", "remote": "/dest"}],
+        )
+        d = meta.to_dict()
+        assert d["local_mounts"] == [{"local": "/src", "remote": "/dest"}]
+
+    def test_from_dict_with_mounts(self):
+        d = {
+            "name": "test",
+            "namespace": "ns",
+            "applied_at": "2025-01-01T00:00:00Z",
+            "original_file": "/path",
+            "file_hash": "sha256:abc",
+            "local_mounts": [{"local": "/a", "remote": "/b"}],
+        }
+        meta = SwapMeta.from_dict(d)
+        assert meta.local_mounts == [{"local": "/a", "remote": "/b"}]
+
+    def test_roundtrip_with_mounts(self, tmp_path):
+        notebook_file = tmp_path / "notebook.py"
+        notebook_file.write_text("content")
+
+        meta = SwapMeta(
+            name="test",
+            namespace="default",
+            applied_at="2025-01-01T00:00:00Z",
+            original_file=str(notebook_file),
+            file_hash="sha256:abc",
+            local_mounts=[{"local": "./examples", "remote": "/data"}],
+        )
+        write_swap_file(str(notebook_file), meta)
+        loaded = read_swap_file(str(notebook_file))
+        assert loaded.local_mounts == [{"local": "./examples", "remote": "/data"}]
+
+    def test_create_swap_meta_with_mounts(self):
+        meta = create_swap_meta(
+            name="test",
+            namespace="default",
+            original_file="file.py",
+            file_hash="sha256:abc",
+            local_mounts=[{"local": "/local", "remote": "/remote"}],
+        )
+        assert meta.local_mounts == [{"local": "/local", "remote": "/remote"}]

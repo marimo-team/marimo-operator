@@ -11,6 +11,7 @@ def apply_resource(resource: dict[str, Any], dry_run: bool = False) -> bool:
     Returns True on success, False on failure.
     """
     import yaml
+
     yaml_content = yaml.dump(resource, default_flow_style=False)
 
     if dry_run:
@@ -68,11 +69,15 @@ def exec_in_pod(
     Returns (success, output).
     """
     cmd = [
-        "kubectl", "exec",
-        "-n", namespace,
+        "kubectl",
+        "exec",
+        "-n",
+        namespace,
         pod_name,
         "--",
-        "sh", "-c", command,
+        "sh",
+        "-c",
+        command,
     ]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
@@ -105,6 +110,7 @@ def get_resource(
     Returns (success, resource_dict or error_message).
     """
     import yaml
+
     cmd = ["kubectl", "get", kind, name, "-n", namespace, "-o", "yaml"]
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)

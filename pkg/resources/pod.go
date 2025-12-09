@@ -3,6 +3,8 @@ package resources
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -51,9 +53,11 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	}
 
 	// Content source: either git clone or ConfigMap copy
-	if notebook.Spec.Content != nil {
+	// contentKey tracks the notebook filename when content is specified (non-empty)
+	var contentKey string
+	if notebook.Spec.Content != nil && *notebook.Spec.Content != "" {
 		// Content mode: mount ConfigMap and copy to notebook dir
-		contentKey := DetectContentKey(*notebook.Spec.Content)
+		contentKey = DetectContentKey(*notebook.Spec.Content)
 		volumes = append(volumes, corev1.Volume{
 			Name: ConfigMapVolumeName,
 			VolumeSource: corev1.VolumeSource{
@@ -80,8 +84,8 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 				},
 			},
 		}
-	} else {
-		// Source mode: git clone
+	} else if notebook.Spec.Source != "" {
+		// Source mode: git clone (only if source URL provided)
 		initContainers = []corev1.Container{
 			{
 				Name:  "git-clone",
@@ -98,6 +102,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 			},
 		}
 	}
+	// No init container for empty content + no source (plugin syncs via kubectl cp)
 
 	// Add venv setup init container
 	initContainers = append(initContainers, corev1.Container{
@@ -170,8 +175,14 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		}
 	}
 
-	// Final argument: notebook directory
-	marimoArgs = append(marimoArgs, NotebookDir)
+	// Final argument: notebook path
+	// - With content: specific file with --sandbox (e.g., /home/marimo/notebooks/notebook.py)
+	// - Without content: directory mode (e.g., /home/marimo/notebooks)
+	if contentKey != "" {
+		marimoArgs = append(marimoArgs, "--sandbox", fmt.Sprintf("%s/%s", NotebookDir, contentKey))
+	} else {
+		marimoArgs = append(marimoArgs, NotebookDir)
+	}
 
 	// Build base environment variables
 	baseEnv := []corev1.EnvVar{
@@ -210,8 +221,12 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		},
 	}
 
+	// Expand mounts to sidecars and merge with explicit sidecars
+	allSidecars := expandMounts(notebook.Spec.Mounts)
+	allSidecars = append(allSidecars, notebook.Spec.Sidecars...)
+
 	// Add sidecar containers (they share the PVC volume)
-	for _, sidecar := range notebook.Spec.Sidecars {
+	for _, sidecar := range allSidecars {
 		container := buildSidecarContainer(sidecar, volumeMounts)
 		containers = append(containers, container)
 	}
@@ -306,4 +321,162 @@ func applyPodOverrides(base, overrides corev1.PodSpec) corev1.PodSpec {
 		return base
 	}
 	return result
+}
+
+// parseRemoteMountURI parses a remote mount URI with optional custom mount point.
+// Format: scheme://user@host:/source or scheme://user@host:/source:/mount
+// Returns: (userHost, sourcePath, mountPoint)
+// If no custom mount point specified, mountPoint is empty.
+func parseRemoteMountURI(uri, scheme string) (userHost, sourcePath, mountPoint string) {
+	trimmed := strings.TrimPrefix(uri, scheme+"://")
+
+	// Split at first : that follows a / to get user@host
+	colonIdx := strings.Index(trimmed, ":/")
+	if colonIdx == -1 {
+		return "", "", ""
+	}
+
+	userHost = trimmed[:colonIdx]
+	pathPart := trimmed[colonIdx+1:] // includes leading /
+
+	// Check for custom mount point (another : followed by /)
+	// /data:/mnt → source=/data, mount=/mnt
+	lastColonIdx := strings.LastIndex(pathPart, ":/")
+	if lastColonIdx > 0 {
+		sourcePath = pathPart[:lastColonIdx]
+		mountPoint = pathPart[lastColonIdx+1:]
+	} else {
+		sourcePath = pathPart
+		mountPoint = ""
+	}
+
+	return userHost, sourcePath, mountPoint
+}
+
+// expandMounts converts mount URIs to sidecar specs.
+// Supported schemes:
+// - sshfs://user@host:/remote/path → SSHFS sidecar (requires FUSE)
+// - sshfs://user@host:/remote/path:/mount → SSHFS with custom mount point
+// - rsync://user@host:/remote/path → rsync sidecar (no FUSE, periodic sync)
+// - rsync://user@host:/remote/path:/mount → rsync with custom mount point
+// - cw://bucket/path → CloudWatch/S3 sidecar (TODO)
+func expandMounts(mounts []string) []marimov1alpha1.SidecarSpec {
+	var sidecars []marimov1alpha1.SidecarSpec
+
+	for i, mount := range mounts {
+		if strings.HasPrefix(mount, "sshfs://") {
+			if sidecar := buildSSHFSSidecar(mount, i); sidecar != nil {
+				sidecars = append(sidecars, *sidecar)
+			}
+		} else if strings.HasPrefix(mount, "rsync://") {
+			if sidecar := buildRsyncSidecar(mount, i); sidecar != nil {
+				sidecars = append(sidecars, *sidecar)
+			}
+		}
+		// TODO: Add cw:// (S3/CloudWatch) support
+	}
+
+	return sidecars
+}
+
+// buildSSHFSSidecar creates a sidecar spec for SSHFS mount.
+// URI format: sshfs://user@host:/remote/path or sshfs://user@host:/remote/path:/mount
+// The sidecar mounts the remote path to the specified mount point or default location.
+func buildSSHFSSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
+	userHost, remotePath, customMount := parseRemoteMountURI(uri, "sshfs")
+	if userHost == "" || remotePath == "" {
+		return nil
+	}
+
+	// Generate a unique name for the mount
+	mountName := fmt.Sprintf("sshfs-%d", index)
+
+	// Use custom mount point or default to /home/marimo/notebooks/mounts/<name>
+	localMountPoint := customMount
+	if localMountPoint == "" {
+		localMountPoint = fmt.Sprintf("%s/mounts/%s", NotebookDir, mountName)
+	}
+
+	return &marimov1alpha1.SidecarSpec{
+		Name:    mountName,
+		Image:   "alpine:latest",
+		Command: []string{"sh", "-c"},
+		Args: []string{
+			fmt.Sprintf(
+				"apk add --no-cache sshfs openssh-client && mkdir -p %s && sshfs -o StrictHostKeyChecking=no,UserKnownHostsFile=/dev/null,reconnect,ServerAliveInterval=15,allow_other %s:%s %s && sleep infinity",
+				localMountPoint,
+				userHost,
+				remotePath,
+				localMountPoint,
+			),
+		},
+		Env: []corev1.EnvVar{
+			// SSH key should be mounted from a secret named "ssh-credentials"
+			// The user can configure this via podOverrides if needed
+		},
+	}
+}
+
+// buildRsyncSidecar creates a sidecar spec for rsync-based file sync.
+// URI format: rsync://user@host:/remote/path or rsync://user@host:/remote/path:/mount
+// No FUSE required - works unprivileged.
+// Behavior: initial sync from remote, then watches local changes and syncs back.
+func buildRsyncSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
+	userHost, remotePath, customMount := parseRemoteMountURI(uri, "rsync")
+	if userHost == "" || remotePath == "" {
+		return nil
+	}
+
+	mountName := fmt.Sprintf("rsync-%d", index)
+
+	// Use custom mount point or default to /home/marimo/notebooks/mounts/<name>
+	localMountPoint := customMount
+	if localMountPoint == "" {
+		localMountPoint = fmt.Sprintf("%s/mounts/%s", NotebookDir, mountName)
+	}
+
+	return &marimov1alpha1.SidecarSpec{
+		Name:    mountName,
+		Image:   "alpine:latest",
+		Command: []string{"sh", "-c"},
+		Args: []string{
+			fmt.Sprintf(
+				"apk add --no-cache openssh-client rsync inotify-tools && "+
+					"mkdir -p %s && "+
+					"echo 'Initial sync from %s:%s' && "+
+					"rsync -avz -e 'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' %s:%s/ %s/ || echo 'Initial sync failed (check SSH credentials)' && "+
+					"echo 'Watching for changes...' && "+
+					"while inotifywait -r -e modify,create,delete %s 2>/dev/null; do "+
+					"rsync -avz -e 'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' %s/ %s:%s/; "+
+					"done",
+				localMountPoint,
+				userHost, remotePath,
+				userHost, remotePath, localMountPoint,
+				localMountPoint,
+				localMountPoint, userHost, remotePath,
+			),
+		},
+		Env: []corev1.EnvVar{
+			// SSH key should be mounted from a secret named "ssh-credentials"
+		},
+	}
+}
+
+// parseSSHFSURI parses an sshfs:// URI and returns user, host, path.
+func parseSSHFSURI(uri string) (user, host, path string, err error) {
+	// Try standard URL parsing first
+	u, parseErr := url.Parse(uri)
+	if parseErr != nil {
+		return "", "", "", parseErr
+	}
+
+	if u.Scheme != "sshfs" {
+		return "", "", "", fmt.Errorf("invalid scheme: %s", u.Scheme)
+	}
+
+	user = u.User.Username()
+	host = u.Host
+	path = u.Path
+
+	return user, host, path, nil
 }
