@@ -128,6 +128,18 @@ func (in *MarimoNotebookSpec) DeepCopyInto(out *MarimoNotebookSpec) {
 		*out = new(AuthSpec)
 		(*in).DeepCopyInto(*out)
 	}
+	if in.Env != nil {
+		in, out := &in.Env, &out.Env
+		*out = make([]v1.EnvVar, len(*in))
+		for i := range *in {
+			(*in)[i].DeepCopyInto(&(*out)[i])
+		}
+	}
+	if in.Mounts != nil {
+		in, out := &in.Mounts, &out.Mounts
+		*out = make([]string, len(*in))
+		copy(*out, *in)
+	}
 	if in.Sidecars != nil {
 		in, out := &in.Sidecars, &out.Sidecars
 		*out = make([]SidecarSpec, len(*in))

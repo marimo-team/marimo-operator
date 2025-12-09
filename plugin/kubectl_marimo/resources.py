@@ -25,19 +25,72 @@ def resource_name(file_path: str, frontmatter: dict[str, Any] | None = None) -> 
     if frontmatter and frontmatter.get("title"):
         return slugify(frontmatter["title"])
     path = Path(file_path)
+    # For directories, use the directory name
+    if path.is_dir():
+        return slugify(path.name if path.name != "." else path.resolve().name)
     return slugify(path.stem)
+
+
+def parse_env(env_dict: dict[str, Any]) -> list[dict[str, Any]]:
+    """Convert frontmatter env to K8s EnvVar format.
+
+    Supports:
+        env:
+          DEBUG: "true"              # Inline value
+          API_KEY:
+            secret: my-secret        # From secret
+            key: api-key
+    """
+    result = []
+    for name, value in env_dict.items():
+        if isinstance(value, str):
+            # Inline value
+            result.append({"name": name, "value": value})
+        elif isinstance(value, dict) and "secret" in value:
+            # Secret reference
+            result.append({
+                "name": name,
+                "valueFrom": {
+                    "secretKeyRef": {
+                        "name": value["secret"],
+                        "key": value.get("key", name.lower()),
+                    }
+                }
+            })
+    return result
 
 
 def build_marimo_notebook(
     name: str,
     namespace: str,
-    content: str,
+    content: str | None,
     frontmatter: dict[str, Any] | None = None,
+    mode: str = "edit",
+    source: str | None = None,
 ) -> dict[str, Any]:
-    """Build MarimoNotebook custom resource."""
+    """Build MarimoNotebook custom resource.
+
+    Args:
+        name: Resource name
+        namespace: Kubernetes namespace
+        content: Notebook content (None for directory mode)
+        frontmatter: Parsed frontmatter configuration
+        mode: Marimo mode - "edit" or "run"
+        source: Data source URI (cw://, sshfs://, file://)
+    """
     spec: dict[str, Any] = {
-        "content": content,
+        "mode": mode,
     }
+
+    # Content (file-based deployments)
+    if content:
+        spec["content"] = content
+
+    # Default storage (PVC by notebook name) - always create PVC
+    storage_size = "1Gi"
+    if frontmatter and "storage" in frontmatter:
+        storage_size = frontmatter["storage"]
+    spec["storage"] = {"size": storage_size}
 
     # Apply frontmatter settings
     if frontmatter:
@@ -45,11 +98,22 @@ def build_marimo_notebook(
             spec["image"] = frontmatter["image"]
         if "port" in frontmatter:
             spec["port"] = int(frontmatter["port"])
-        if "storage" in frontmatter:
-            spec["storage"] = {"size": frontmatter["storage"]}
         if "auth" in frontmatter:
             if frontmatter["auth"] == "none":
                 spec["auth"] = {}  # Empty auth block = --no-token
+
+        # Environment variables
+        if "env" in frontmatter:
+            spec["env"] = parse_env(frontmatter["env"])
+
+    # Mounts from --source and frontmatter
+    mounts = []
+    if source:
+        mounts.append(source)
+    if frontmatter and "mounts" in frontmatter:
+        mounts.extend(frontmatter["mounts"])
+    if mounts:
+        spec["mounts"] = mounts
 
     return {
         "apiVersion": "marimo.io/v1alpha1",

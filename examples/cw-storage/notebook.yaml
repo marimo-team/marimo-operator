@@ -1,0 +1,50 @@
+# S3-compatible storage example
+# Mount data from CW (S3-compatible) storage for analysis
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: data-analysis
+  namespace: default
+spec:
+  # Inline notebook content
+  content: |
+    import marimo
+
+    app = marimo.App()
+
+    @app.cell
+    def load_data():
+        import pandas as pd
+        # Data mounted from S3 at /mounts/cw-data
+        df = pd.read_csv("/mounts/cw-data/dataset.csv")
+        return df
+
+    @app.cell
+    def analyze(df):
+        return df.describe()
+
+    if __name__ == "__main__":
+        app.run()
+
+  storage:
+    size: "5Gi"
+
+  # S3 sidecar mounts bucket to /mounts/cw-data
+  sidecars:
+    - name: s3-mount
+      image: efrecon/s3fs:latest
+      env:
+        - name: AWS_S3_BUCKET
+          value: "my-data-bucket"
+        - name: AWS_S3_MOUNT
+          value: "/mounts/cw-data"
+        - name: AWS_ACCESS_KEY_ID
+          valueFrom:
+            secretKeyRef:
+              name: s3-credentials
+              key: access-key
+        - name: AWS_SECRET_ACCESS_KEY
+          valueFrom:
+            secretKeyRef:
+              name: s3-credentials
+              key: secret-key

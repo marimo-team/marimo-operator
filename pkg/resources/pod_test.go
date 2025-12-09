@@ -897,3 +897,169 @@ func TestBuildSidecarContainer(t *testing.T) {
 		t.Errorf("expected volume mount at /data, got %v", container.VolumeMounts)
 	}
 }
+
+func TestBuildPod_ModeDefault(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			// Mode not set, should default to "edit"
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// First arg should be "edit" (default mode)
+	if len(container.Args) == 0 {
+		t.Fatal("expected marimo args")
+	}
+	if container.Args[0] != "edit" {
+		t.Errorf("expected default mode 'edit', got '%s'", container.Args[0])
+	}
+}
+
+func TestBuildPod_ModeRun(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Mode:   "run",
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// First arg should be "run"
+	if len(container.Args) == 0 {
+		t.Fatal("expected marimo args")
+	}
+	if container.Args[0] != "run" {
+		t.Errorf("expected mode 'run', got '%s'", container.Args[0])
+	}
+}
+
+func TestBuildPod_ModeEdit(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Mode:   "edit",
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// First arg should be "edit"
+	if len(container.Args) == 0 {
+		t.Fatal("expected marimo args")
+	}
+	if container.Args[0] != "edit" {
+		t.Errorf("expected mode 'edit', got '%s'", container.Args[0])
+	}
+}
+
+func TestBuildPod_EnvVars(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Env: []corev1.EnvVar{
+				{Name: "DEBUG", Value: "true"},
+				{Name: "API_KEY", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "my-secret",
+						},
+						Key: "api-key",
+					},
+				}},
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// Should have base env vars + user env vars
+	if len(container.Env) < 8 { // 6 base + 2 user
+		t.Fatalf("expected at least 8 env vars, got %d", len(container.Env))
+	}
+
+	// Check base env vars are present
+	foundVirtualEnv := false
+	for _, env := range container.Env {
+		if env.Name == "VIRTUAL_ENV" && env.Value == "/opt/venv" {
+			foundVirtualEnv = true
+			break
+		}
+	}
+	if !foundVirtualEnv {
+		t.Error("expected base env var VIRTUAL_ENV to be present")
+	}
+
+	// Check user env vars are appended
+	foundDebug := false
+	foundAPIKey := false
+	for _, env := range container.Env {
+		if env.Name == "DEBUG" && env.Value == "true" {
+			foundDebug = true
+		}
+		if env.Name == "API_KEY" && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
+			if env.ValueFrom.SecretKeyRef.Name == "my-secret" && env.ValueFrom.SecretKeyRef.Key == "api-key" {
+				foundAPIKey = true
+			}
+		}
+	}
+	if !foundDebug {
+		t.Error("expected user env var DEBUG=true to be present")
+	}
+	if !foundAPIKey {
+		t.Error("expected user env var API_KEY from secret to be present")
+	}
+}
+
+func TestBuildPod_EnvVarsEmpty(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			// No Env specified
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// Should have exactly 6 base env vars
+	if len(container.Env) != 6 {
+		t.Errorf("expected 6 base env vars, got %d", len(container.Env))
+	}
+}

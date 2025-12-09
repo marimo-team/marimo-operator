@@ -124,9 +124,15 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		{Name: "venv", MountPath: "/opt/venv"},
 	}
 
+	// Determine mode: use spec.Mode or default to "edit"
+	mode := "edit"
+	if notebook.Spec.Mode != "" {
+		mode = notebook.Spec.Mode
+	}
+
 	// Build marimo command args (will be passed to shell wrapper)
 	marimoArgs := []string{
-		"edit",
+		mode,
 		"--headless",
 		"--host=0.0.0.0",
 		fmt.Sprintf("--port=%d", notebook.Spec.Port),
@@ -167,6 +173,21 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	// Final argument: notebook directory
 	marimoArgs = append(marimoArgs, NotebookDir)
 
+	// Build base environment variables
+	baseEnv := []corev1.EnvVar{
+		// UV/venv environment configuration
+		{Name: "VIRTUAL_ENV", Value: "/opt/venv"},
+		{Name: "UV_PROJECT_ENVIRONMENT", Value: "/opt/venv"},
+		{Name: "UV", Value: "/usr/bin/uv"},
+		{Name: "UV_SYSTEM_PYTHON", Value: "1"},
+		// TODO: Update this
+		{Name: "MODAL_TASK_ID", Value: "1"},
+		{Name: "PYTHONPATH", Value: "/usr/local/lib/python3.13/site-packages/:/opt/venv/lib/python3.13/site-packages/"},
+	}
+
+	// Append user-provided env vars (allows overrides)
+	containerEnv := append(baseEnv, notebook.Spec.Env...)
+
 	// Build main containers list starting with marimo
 	// Command and args are passed directly - no shell wrapper needed
 	containers := []corev1.Container{
@@ -176,16 +197,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 			WorkingDir: NotebookDir,
 			Command:    []string{"marimo"},
 			Args:       marimoArgs,
-			Env: []corev1.EnvVar{
-				// UV/venv environment configuration
-				{Name: "VIRTUAL_ENV", Value: "/opt/venv"},
-				{Name: "UV_PROJECT_ENVIRONMENT", Value: "/opt/venv"},
-				{Name: "UV", Value: "/usr/bin/uv"},
-				{Name: "UV_SYSTEM_PYTHON", Value: "1"},
-				// TODO: Update this
-				{Name: "MODAL_TASK_ID", Value: "1"},
-				{Name: "PYTHONPATH", Value: "/usr/local/lib/python3.13/site-packages/:/opt/venv/lib/python3.13/site-packages/"},
-			},
+			Env:        containerEnv,
 			Ports: []corev1.ContainerPort{
 				{
 					Name:          "http",

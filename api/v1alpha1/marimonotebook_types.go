@@ -112,6 +112,21 @@ type MarimoNotebookSpec struct {
 	// +optional
 	Auth *AuthSpec `json:"auth,omitempty"`
 
+	// Mode is the marimo server mode: "edit" (default) or "run"
+	// +kubebuilder:default:="edit"
+	// +kubebuilder:validation:Enum=edit;run
+	// +optional
+	Mode string `json:"mode,omitempty"`
+
+	// Env variables for the marimo container
+	// +optional
+	Env []corev1.EnvVar `json:"env,omitempty"`
+
+	// Mounts are high-level data source URIs expanded to sidecars
+	// Supported schemes: cw://, sshfs://, file://
+	// +optional
+	Mounts []string `json:"mounts,omitempty"`
+
 	// Sidecars are additional containers that run alongside marimo
 	// They share the PVC volume mounted at /data
 	// +optional

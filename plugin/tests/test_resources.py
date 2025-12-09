@@ -8,6 +8,7 @@ from kubectl_marimo.resources import (
     resource_name,
     build_marimo_notebook,
     detect_content_type,
+    parse_env,
 )
 
 
@@ -70,6 +71,10 @@ class TestBuildMarimoNotebook:
         assert resource["metadata"]["name"] == "test-notebook"
         assert resource["metadata"]["namespace"] == "default"
         assert resource["spec"]["content"] == "# test content"
+        # Default mode should be "edit"
+        assert resource["spec"]["mode"] == "edit"
+        # Default storage should be 1Gi
+        assert resource["spec"]["storage"]["size"] == "1Gi"
 
     def test_with_image(self):
         resource = build_marimo_notebook(
@@ -106,6 +111,109 @@ class TestBuildMarimoNotebook:
             frontmatter={"auth": "none"},
         )
         assert resource["spec"]["auth"] == {}
+
+    def test_mode_edit(self):
+        resource = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            mode="edit",
+        )
+        assert resource["spec"]["mode"] == "edit"
+
+    def test_mode_run(self):
+        resource = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            mode="run",
+        )
+        assert resource["spec"]["mode"] == "run"
+
+    def test_source_adds_mount(self):
+        resource = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            source="cw://bucket/data",
+        )
+        assert resource["spec"]["mounts"] == ["cw://bucket/data"]
+
+    def test_frontmatter_mounts(self):
+        resource = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"mounts": ["cw://bucket1", "sshfs://host/path"]},
+        )
+        assert resource["spec"]["mounts"] == ["cw://bucket1", "sshfs://host/path"]
+
+    def test_source_and_frontmatter_mounts_combined(self):
+        resource = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"mounts": ["cw://bucket1"]},
+            source="sshfs://host/path",
+        )
+        # Source should come first, then frontmatter mounts
+        assert resource["spec"]["mounts"] == ["sshfs://host/path", "cw://bucket1"]
+
+    def test_frontmatter_env(self):
+        resource = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"env": {"DEBUG": "true", "LOG_LEVEL": "info"}},
+        )
+        env_vars = resource["spec"]["env"]
+        assert len(env_vars) == 2
+        # Check inline values
+        debug_var = next(e for e in env_vars if e["name"] == "DEBUG")
+        assert debug_var["value"] == "true"
+
+    def test_content_none_for_directory(self):
+        resource = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content=None,  # Directory mode
+        )
+        assert "content" not in resource["spec"]
+        assert resource["spec"]["mode"] == "edit"
+        assert resource["spec"]["storage"]["size"] == "1Gi"
+
+
+class TestParseEnv:
+    def test_inline_value(self):
+        result = parse_env({"DEBUG": "true"})
+        assert result == [{"name": "DEBUG", "value": "true"}]
+
+    def test_secret_reference(self):
+        result = parse_env({
+            "API_KEY": {"secret": "my-secret", "key": "api-key"}
+        })
+        assert len(result) == 1
+        assert result[0]["name"] == "API_KEY"
+        assert result[0]["valueFrom"]["secretKeyRef"]["name"] == "my-secret"
+        assert result[0]["valueFrom"]["secretKeyRef"]["key"] == "api-key"
+
+    def test_secret_default_key(self):
+        result = parse_env({
+            "API_KEY": {"secret": "my-secret"}
+        })
+        # Default key should be lowercase of env var name
+        assert result[0]["valueFrom"]["secretKeyRef"]["key"] == "api_key"
+
+    def test_mixed_env(self):
+        result = parse_env({
+            "DEBUG": "true",
+            "API_KEY": {"secret": "my-secret", "key": "key"},
+        })
+        assert len(result) == 2
+        debug_var = next(e for e in result if e["name"] == "DEBUG")
+        api_var = next(e for e in result if e["name"] == "API_KEY")
+        assert debug_var["value"] == "true"
+        assert "valueFrom" in api_var
 
 
 class TestDetectContentType:

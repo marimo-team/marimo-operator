@@ -3,7 +3,7 @@
 import click
 
 from . import __version__
-from .apply import apply_notebook
+from .deploy import deploy_notebook
 from .delete import delete_notebook
 from .status import show_status
 from .sync import sync_notebook
@@ -27,16 +27,31 @@ def cli():
 
 
 @cli.command()
-@click.argument("file", type=click.Path(exists=True))
+@click.argument("file", type=click.Path(exists=True), required=False, default=".")
 @click.option("-n", "--namespace", default="default", help="Kubernetes namespace")
+@click.option("--source", help="Data source URI (cw://, sshfs://, file://)")
 @click.option("--dry-run", is_flag=True, help="Print YAML without applying")
 @click.option("--force", "-f", is_flag=True, help="Overwrite without prompting")
-def apply(file: str, namespace: str, dry_run: bool, force: bool):
-    """Deploy a notebook to the cluster.
+def edit(file: str, namespace: str, source: str | None, dry_run: bool, force: bool):
+    """Create or edit notebooks in the cluster.
 
-    FILE is a marimo notebook (.py, .md) or MarimoNotebook YAML.
+    FILE is a marimo notebook (.py, .md) or directory. Defaults to current directory.
     """
-    apply_notebook(file, namespace=namespace, dry_run=dry_run, force=force)
+    deploy_notebook(file, mode="edit", namespace=namespace, source=source, dry_run=dry_run, force=force)
+
+
+@cli.command()
+@click.argument("file", type=click.Path(exists=True))
+@click.option("-n", "--namespace", default="default", help="Kubernetes namespace")
+@click.option("--source", help="Data source URI (cw://, sshfs://, file://)")
+@click.option("--dry-run", is_flag=True, help="Print YAML without applying")
+@click.option("--force", "-f", is_flag=True, help="Overwrite without prompting")
+def run(file: str, namespace: str, source: str | None, dry_run: bool, force: bool):
+    """Run a notebook as a read-only application.
+
+    FILE is a marimo notebook (.py, .md).
+    """
+    deploy_notebook(file, mode="run", namespace=namespace, source=source, dry_run=dry_run, force=force)
 
 
 @cli.command()
@@ -46,7 +61,7 @@ def apply(file: str, namespace: str, dry_run: bool, force: bool):
 def sync(file: str, namespace: str | None, force: bool):
     """Pull changes from pod back to local file.
 
-    FILE is the local notebook that was previously applied.
+    FILE is the local notebook that was previously deployed.
     """
     sync_notebook(file, namespace=namespace, force=force)
 
@@ -59,7 +74,7 @@ def sync(file: str, namespace: str | None, force: bool):
 def delete(file: str, namespace: str | None, keep_pvc: bool, no_sync: bool):
     """Sync changes, then delete cluster resources.
 
-    FILE is the local notebook that was previously applied.
+    FILE is the local notebook that was previously deployed.
     """
     delete_notebook(file, namespace=namespace, keep_pvc=keep_pvc, no_sync=no_sync)
 

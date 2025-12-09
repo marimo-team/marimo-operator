@@ -1,0 +1,47 @@
+# Environment variables example
+# Configure notebooks with env vars from values and secrets
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: api-notebook
+  namespace: default
+spec:
+  content: |
+    import marimo
+    import os
+
+    app = marimo.App()
+
+    @app.cell
+    def config():
+        debug = os.environ.get("DEBUG", "false")
+        log_level = os.environ.get("LOG_LEVEL", "info")
+        return debug, log_level
+
+    @app.cell
+    def api_call():
+        import requests
+        api_key = os.environ.get("API_KEY")
+        # Use API key for authenticated requests
+        headers = {"Authorization": f"Bearer {api_key}"}
+        return headers
+
+    if __name__ == "__main__":
+        app.run()
+
+  storage:
+    size: "1Gi"
+
+  # Environment variables for the marimo container
+  env:
+    # Inline values
+    - name: DEBUG
+      value: "true"
+    - name: LOG_LEVEL
+      value: "debug"
+    # From secrets
+    - name: API_KEY
+      valueFrom:
+        secretKeyRef:
+          name: api-credentials
+          key: api-key
