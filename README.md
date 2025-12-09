@@ -4,10 +4,10 @@ A Kubernetes operator for deploying [marimo](https://marimo.io) notebooks.
 
 ## Features
 
-- **Git-native deployment**: Clone notebooks directly from repositories
-- **Extensible sidecars**: Add SSH, git-sync, or custom containers
+- **Cloud storage integration**: Mount S3-compatible storage (cw://, sshfs://)
 - **Persistent storage**: Browser edits persist across restarts
 - **Resource management**: Memory, CPU, and GPU allocation per notebook
+- **Extensible sidecars**: Add custom containers for advanced use cases
 
 ## Quickstart
 
@@ -37,8 +37,14 @@ _Or_ deploy individual notebooks with the kubectl plugin:
 # Install plugin
 pip install kubectl-marimo  # or: kubectl krew install marimo
 
-# Deploy a local notebook
-kubectl marimo apply notebook.py
+# Edit a notebook interactively
+kubectl marimo edit notebook.py
+
+# Run as read-only app
+kubectl marimo run notebook.py
+
+# With S3 storage
+kubectl marimo edit --source=cw://bucket/data notebook.py
 
 # Sync changes back
 kubectl marimo sync notebook.py
@@ -125,14 +131,23 @@ spec:
 
 ## kubectl Plugin
 
-For deploying individual notebooks from local files. See [docs/PLUGIN.md](docs/PLUGIN.md) for details.
+For deploying individual notebooks from local files. See [plugin/README.md](plugin/README.md) for details.
 
 ```bash
 pip install kubectl-marimo
-kubectl marimo apply notebook.py
+
+# Interactive editing
+kubectl marimo edit notebook.py
+
+# Read-only app mode
+kubectl marimo run notebook.py
+
+# With S3 storage
+kubectl marimo edit --source=cw://bucket/data notebook.py
+
+# Sync and delete
 kubectl marimo sync notebook.py
-kubectl marimo delete notebook.py             # PVC preserved by default
-kubectl marimo delete notebook.py --delete-pvc  # Also delete storage
+kubectl marimo delete notebook.py
 ```
 
 ## Architecture

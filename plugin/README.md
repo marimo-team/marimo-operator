@@ -1,28 +1,33 @@
 # kubectl-marimo
 
-kubectl plugin for deploying marimo notebooks to Kubernetes.
+Deploy marimo notebooks to Kubernetes.
 
 ## Installation
 
 ```bash
-# With pip
-pip install kubectl-marimo
-
-# With uv
+# With uv (recommended)
 uv tool install kubectl-marimo
 
 # With uvx (no install)
-uvx kubectl-marimo apply notebook.py
+uvx kubectl-marimo edit notebook.py
+
+# With pip
+pip install kubectl-marimo
 ```
 
-## Usage
+## Quick Start
 
 ```bash
-# Deploy a notebook
-kubectl marimo apply notebook.py
-kubectl marimo apply notebook.md
+# Edit a notebook interactively
+kubectl marimo edit notebook.py
 
-# Sync changes from pod
+# Run as read-only app
+kubectl marimo run notebook.py
+
+# With cloud storage
+kubectl marimo edit --source=cw://my-bucket/data notebook.py
+
+# Sync changes back
 kubectl marimo sync notebook.py
 
 # Delete deployment
@@ -32,29 +37,160 @@ kubectl marimo delete notebook.py
 kubectl marimo status
 ```
 
-## Frontmatter
+## Commands
 
-Configure deployments via frontmatter:
+### edit
 
-**Markdown (.md):**
+Create or edit notebooks in the cluster (interactive mode).
+
+```bash
+kubectl marimo edit [OPTIONS] [FILE]
+```
+
+Options:
+- `-n, --namespace` - Kubernetes namespace (default: "default")
+- `--source` - Data source URI (cw://, sshfs://, file://)
+- `--dry-run` - Print YAML without applying
+- `-f, --force` - Overwrite without prompting
+
+Examples:
+```bash
+# Edit existing notebook
+kubectl marimo edit notebook.py
+
+# Edit with S3 data mounted
+kubectl marimo edit --source=cw://bucket/data notebook.py
+
+# Edit in staging namespace
+kubectl marimo edit -n staging notebook.py
+```
+
+### run
+
+Run a notebook as a read-only application.
+
+```bash
+kubectl marimo run [OPTIONS] FILE
+```
+
+Options: Same as `edit`
+
+Examples:
+```bash
+# Run notebook as app
+kubectl marimo run dashboard.py
+
+# Run with data source
+kubectl marimo run --source=cw://bucket/reports dashboard.py
+```
+
+### sync
+
+Pull changes from pod back to local file.
+
+```bash
+kubectl marimo sync [OPTIONS] FILE
+```
+
+Options:
+- `-n, --namespace` - Kubernetes namespace
+- `-f, --force` - Overwrite local file without prompting
+
+### delete
+
+Delete notebook deployment from cluster.
+
+```bash
+kubectl marimo delete [OPTIONS] FILE
+```
+
+Options:
+- `-n, --namespace` - Kubernetes namespace
+- `--keep-pvc` - Preserve persistent storage
+- `--no-sync` - Delete without syncing changes back
+
+### status
+
+List active notebook deployments.
+
+```bash
+kubectl marimo status [DIRECTORY]
+```
+
+## Configuration
+
+Configure deployments via frontmatter in your notebook.
+
+### Markdown (.md)
+
 ```yaml
 ---
-title: My Notebook
+title: my-analysis
 image: ghcr.io/marimo-team/marimo:latest
-storage: 1Gi
-auth: none
+storage: 5Gi
+env:
+  DEBUG: "true"
+  API_KEY:
+    secret: my-secret
+    key: api-key
+mounts:
+  - cw://my-bucket/data
 ---
 ```
 
-**Python (.py):**
+### Python (.py)
+
 ```python
 # /// script
 # dependencies = ["marimo", "pandas"]
 # ///
 # [tool.marimo.k8s]
-# image = "custom:latest"
+# image = "ghcr.io/marimo-team/marimo:latest"
 # storage = "5Gi"
+#
+# [tool.marimo.k8s.env]
+# DEBUG = "true"
 ```
+
+### Frontmatter Fields
+
+| Field | Description | Default |
+|-------|-------------|---------|
+| title | Resource name | filename |
+| image | Container image | ghcr.io/marimo-team/marimo:latest |
+| port | Server port | 2718 |
+| storage | PVC size | none (ephemeral) |
+| auth | Set to "none" to disable | token auth |
+| env | Environment variables | none |
+| mounts | Data source URIs | none |
+
+### Environment Variables
+
+Inline values:
+```yaml
+env:
+  DEBUG: "true"
+  LOG_LEVEL: "info"
+```
+
+From Kubernetes secrets:
+```yaml
+env:
+  API_KEY:
+    secret: my-secret
+    key: api-key
+  DB_PASSWORD:
+    secret: db-credentials
+    key: password
+```
+
+### Mount URIs
+
+| Scheme | Description | Example |
+|--------|-------------|---------|
+| cw:// | S3-compatible storage | cw://bucket/path |
+| sshfs:// | SSHFS mount | sshfs://user@host:/path |
+| file:// | Local files (read-only) | file:///local/data |
 
 ## Requirements
 

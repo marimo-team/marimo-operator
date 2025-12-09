@@ -16,8 +16,9 @@ def cli():
 
     Examples:
 
-        kubectl marimo apply notebook.py
-        kubectl marimo apply notebook.md
+        kubectl marimo edit notebook.py
+        kubectl marimo run notebook.py
+        kubectl marimo edit --source=cw://bucket/data notebook.py
         kubectl marimo sync notebook.py
         kubectl marimo delete notebook.py
         kubectl marimo status
