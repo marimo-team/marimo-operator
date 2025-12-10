@@ -1390,9 +1390,9 @@ func TestExpandMounts_CW(t *testing.T) {
 		t.Errorf("expected args to contain 'mybucket:/data', got %s", sidecar.Args[0])
 	}
 
-	// Check that it uses the LOTA endpoint by default
-	if !strings.Contains(sidecar.Args[0], "cwlota.com") {
-		t.Errorf("expected args to contain 'cwlota.com', got %s", sidecar.Args[0])
+	// Check that it uses cwobject.com endpoint by default
+	if !strings.Contains(sidecar.Args[0], "cwobject.com") {
+		t.Errorf("expected args to contain 'cwobject.com', got %s", sidecar.Args[0])
 	}
 }
 

@@ -80,7 +80,7 @@ cwic cwobject policy get
 cwic cwobject policy create -f cw-policy.json
 ```
 
-### 5. Configure s3cmd (for local testing)
+### 5. Configure s3cmd
 
 ```bash
 cat > ~/.s3cfg << EOF
@@ -96,10 +96,19 @@ EOF
 s3cmd ls s3://my-notebook-data/
 ```
 
-### 6. Create Kubernetes Secret
+### 6. Kubernetes Secret (automatic)
+
+The `kubectl-marimo` plugin automatically creates the `cw-credentials` secret from your `~/.s3cfg` when you use `cw://` mounts:
 
 ```bash
-kubectl create secret generic cw-s3-creds \
+# This auto-creates the secret if needed
+kubectl marimo edit --source=cw://my-bucket notebook.py
+```
+
+To create manually:
+
+```bash
+kubectl create secret generic cw-credentials \
   --from-literal=AWS_ACCESS_KEY_ID=CWXXXXXXXXXX \
   --from-literal=AWS_SECRET_ACCESS_KEY=cwXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 ```
@@ -132,9 +141,6 @@ kubectl marimo edit notebook.py --source=cw://my-notebook-data
 # ///
 # [tool.marimo.k8s]
 # mounts = ["cw://my-notebook-data"]
-#
-# [tool.marimo.k8s.envFrom]
-# secrets = ["cw-s3-creds"]
 ```
 
 ### Access in Notebook
@@ -155,12 +161,21 @@ with open(f"{mount_path}/data.csv") as f:
 
 ## S3 Endpoints
 
-| Location | Endpoint | Use Case |
-|----------|----------|----------|
-| Inside CoreWeave | `http://cwlota.com` | Default, optimized |
-| Outside CoreWeave | `https://cwobject.com` | External access |
+The default endpoint is `https://cwobject.com` which works from all nodes.
 
-Override with `CW_S3_ENDPOINT` environment variable.
+Override with the `S3_ENDPOINT` environment variable in the operator deployment:
+
+```bash
+# For LOTA-optimized access from GPU nodes (optional)
+kubectl set env deployment/marimo-operator-controller-manager \
+  -n marimo-operator-system \
+  S3_ENDPOINT=http://cwlota.com
+```
+
+| Endpoint | Use Case |
+|----------|----------|
+| `https://cwobject.com` | Default, works everywhere |
+| `http://cwlota.com` | LOTA-optimized (GPU nodes only) |
 
 ## How It Works
 
@@ -191,5 +206,9 @@ Features:
 ### Mount not appearing in pod
 
 - Check sidecar logs: `kubectl logs <pod> -c cw-0`
-- Verify secret exists: `kubectl get secret cw-s3-creds`
+- Verify secret exists: `kubectl get secret cw-credentials`
 - Check credentials are correct in secret
+
+### FUSE device not found
+
+The s3fs sidecar requires privileged mode to access `/dev/fuse`. Ensure you're using operator version with the privileged security context fix.

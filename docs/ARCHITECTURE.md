@@ -234,3 +234,20 @@ Target users (marimo users) already have Python:
 2. `uv`/`uvx` provides fast installation
 3. Single source of truth (no version drift)
 4. Krew compatibility via Go shim
+
+### Why configurable default images?
+
+All auto-generated sidecars use images configurable via operator environment variables:
+
+| Env Var | Default | Usage |
+|---------|---------|-------|
+| `DEFAULT_INIT_IMAGE` | `busybox:1.36` | copy-content init container |
+| `GIT_IMAGE` | `alpine/git:latest` | git clone sidecar |
+| `ALPINE_IMAGE` | `alpine:latest` | sshfs + file:// mount sidecars |
+| `S3FS_IMAGE` | `ghcr.io/marimo-team/marimo-operator/s3fs:latest` | cw:// mount sidecar |
+
+Benefits:
+1. Air-gapped clusters can use internal registries
+2. Security teams can mandate approved images
+3. No hardcoded third-party dependencies
+4. Users can always override via `spec.sidecars` for full control

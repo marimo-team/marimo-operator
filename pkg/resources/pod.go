@@ -504,7 +504,7 @@ const CWCredentialsSecret = "cw-credentials"
 // buildCWSidecar creates a sidecar spec for CoreWeave S3 mount using s3fs.
 // URI format: cw://bucket[/path][:mount]
 // Credentials from cw-credentials secret (auto-created by kubectl-marimo plugin).
-// Endpoint from CW_S3_ENDPOINT env var (default: http://cwlota.com).
+// Endpoint from S3_ENDPOINT env var (default: https://cwobject.com).
 func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 	bucket, subpath, customMount := parseCWMountURI(uri)
 	if bucket == "" {
@@ -535,8 +535,7 @@ func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 					`chmod 600 /etc/passwd-s3fs && `+
 					`s3fs %s %s `+
 					`-o passwd_file=/etc/passwd-s3fs `+
-					`-o url=${CW_S3_ENDPOINT:-http://cwlota.com} `+
-					`-o use_path_request_style `+
+					`-o url=${S3_ENDPOINT:-https://cwobject.com} `+
 					`-o allow_other `+
 					`-o umask=0000 `+
 					`-f`,
