@@ -38,10 +38,27 @@ jobs:
             type=sha,prefix=
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push
+      - name: Build and push operator
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Extract s3fs metadata
+        id: s3fs-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/s3fs
+          tags: |
+            type=raw,value=latest
+            type=sha,prefix=
+
+      - name: Build and push s3fs
+        uses: docker/build-push-action@v5
+        with:
+          context: docker/s3fs
+          push: true
+          tags: ${{ steps.s3fs-meta.outputs.tags }}
+          labels: ${{ steps.s3fs-meta.outputs.labels }}

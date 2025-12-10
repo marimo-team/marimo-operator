@@ -518,7 +518,7 @@ func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 
 	return &marimov1alpha1.SidecarSpec{
 		Name:    mountName,
-		Image:   "efrecon/s3fs:latest",
+		Image:   "ghcr.io/marimo-team/marimo-operator/s3fs:latest",
 		Command: []string{"sh", "-c"},
 		Args: []string{
 			fmt.Sprintf(

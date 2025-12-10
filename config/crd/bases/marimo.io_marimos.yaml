@@ -8940,8 +8940,6 @@ spec:
             x-kubernetes-validations:
             - message: storage is required when sidecars are specified
               rule: '!(has(self.sidecars) && size(self.sidecars) > 0 && !has(self.storage))'
-            - message: either source or content must be specified
-              rule: has(self.source) || has(self.content)
             - message: source and content are mutually exclusive
               rule: '!(has(self.source) && has(self.content))'
           status:
