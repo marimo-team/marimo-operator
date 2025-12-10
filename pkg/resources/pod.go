@@ -353,13 +353,37 @@ func parseRemoteMountURI(uri, scheme string) (userHost, sourcePath, mountPoint s
 	return userHost, sourcePath, mountPoint
 }
 
+// parseCWMountURI parses a cw:// URI for CoreWeave S3 mounts.
+// Format: cw://bucket[/path][:mount_point]
+// Returns: (bucket, subpath, mountPoint)
+func parseCWMountURI(uri string) (bucket, subpath, mountPoint string) {
+	trimmed := strings.TrimPrefix(uri, "cw://")
+
+	// Check for custom mount point (last :/)
+	lastColonIdx := strings.LastIndex(trimmed, ":/")
+	if lastColonIdx > 0 {
+		mountPoint = trimmed[lastColonIdx+1:]
+		trimmed = trimmed[:lastColonIdx]
+	}
+
+	// Split bucket/path
+	parts := strings.SplitN(trimmed, "/", 2)
+	bucket = parts[0]
+	if len(parts) > 1 {
+		subpath = parts[1]
+	}
+
+	return bucket, subpath, mountPoint
+}
+
 // expandMounts converts mount URIs to sidecar specs.
 // Supported schemes:
 // - sshfs://user@host:/remote/path → SSHFS sidecar (requires FUSE)
 // - sshfs://user@host:/remote/path:/mount → SSHFS with custom mount point
 // - rsync://user@host:/remote/path → rsync sidecar (no FUSE, periodic sync)
 // - rsync://user@host:/remote/path:/mount → rsync with custom mount point
-// - cw://bucket/path → CloudWatch/S3 sidecar (TODO)
+// - cw://bucket/path → CoreWeave S3 sidecar using s3fs
+// - cw://bucket/path:/mount → CoreWeave S3 with custom mount point
 func expandMounts(mounts []string) []marimov1alpha1.SidecarSpec {
 	var sidecars []marimov1alpha1.SidecarSpec
 
@@ -372,8 +396,11 @@ func expandMounts(mounts []string) []marimov1alpha1.SidecarSpec {
 			if sidecar := buildRsyncSidecar(mount, i); sidecar != nil {
 				sidecars = append(sidecars, *sidecar)
 			}
+		} else if strings.HasPrefix(mount, "cw://") {
+			if sidecar := buildCWSidecar(mount, i); sidecar != nil {
+				sidecars = append(sidecars, *sidecar)
+			}
 		}
-		// TODO: Add cw:// (S3/CloudWatch) support
 	}
 
 	return sidecars
@@ -458,6 +485,77 @@ func buildRsyncSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 		},
 		Env: []corev1.EnvVar{
 			// SSH key should be mounted from a secret named "ssh-credentials"
+		},
+	}
+}
+
+// CWCredentialsSecret is the name of the K8s secret containing S3 credentials.
+// The kubectl-marimo plugin auto-creates this from ~/.s3cfg.
+const CWCredentialsSecret = "cw-credentials"
+
+// buildCWSidecar creates a sidecar spec for CoreWeave S3 mount using s3fs.
+// URI format: cw://bucket[/path][:mount]
+// Credentials from cw-credentials secret (auto-created by kubectl-marimo plugin).
+// Endpoint from CW_S3_ENDPOINT env var (default: http://cwlota.com).
+func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
+	bucket, subpath, customMount := parseCWMountURI(uri)
+	if bucket == "" {
+		return nil
+	}
+
+	mountName := fmt.Sprintf("cw-%d", index)
+
+	localMountPoint := customMount
+	if localMountPoint == "" {
+		localMountPoint = fmt.Sprintf("%s/mounts/%s", NotebookDir, mountName)
+	}
+
+	// Build bucket:/path string for s3fs
+	remotePath := bucket
+	if subpath != "" {
+		remotePath = bucket + ":/" + subpath
+	}
+
+	return &marimov1alpha1.SidecarSpec{
+		Name:    mountName,
+		Image:   "efrecon/s3fs:latest",
+		Command: []string{"sh", "-c"},
+		Args: []string{
+			fmt.Sprintf(
+				`mkdir -p %s && `+
+					`echo "$AWS_ACCESS_KEY_ID:$AWS_SECRET_ACCESS_KEY" > /etc/passwd-s3fs && `+
+					`chmod 600 /etc/passwd-s3fs && `+
+					`s3fs %s %s `+
+					`-o passwd_file=/etc/passwd-s3fs `+
+					`-o url=${CW_S3_ENDPOINT:-http://cwlota.com} `+
+					`-o use_path_request_style `+
+					`-o allow_other `+
+					`-o umask=0000 `+
+					`-f`,
+				localMountPoint,
+				remotePath,
+				localMountPoint,
+			),
+		},
+		Env: []corev1.EnvVar{
+			{
+				Name: "AWS_ACCESS_KEY_ID",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: CWCredentialsSecret},
+						Key:                  "AWS_ACCESS_KEY_ID",
+					},
+				},
+			},
+			{
+				Name: "AWS_SECRET_ACCESS_KEY",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{Name: CWCredentialsSecret},
+						Key:                  "AWS_SECRET_ACCESS_KEY",
+					},
+				},
+			},
 		},
 	}
 }

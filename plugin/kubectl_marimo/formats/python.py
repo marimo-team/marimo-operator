@@ -63,12 +63,34 @@ def extract_pep723_metadata(content: str) -> dict[str, Any] | None:
     if k8s_match:
         for line in k8s_match.group(1).split("\n"):
             line = line.lstrip("# ").strip()
+            if line.startswith("["):
+                # Stop at next section
+                break
             if "=" in line:
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
                 value = _parse_toml_value(value)
                 metadata[key] = value
+
+    # Look for marimo k8s env config
+    env_pattern = r"# \[tool\.marimo\.k8s\.env\]\n((?:# .*\n)*)"
+    env_match = re.search(env_pattern, content)
+    if env_match:
+        env = {}
+        for line in env_match.group(1).split("\n"):
+            line = line.lstrip("# ").strip()
+            if line.startswith("["):
+                # Stop at next section
+                break
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                value = _parse_toml_value(value)
+                env[key] = value
+        if env:
+            metadata["env"] = env
 
     return metadata if metadata else None
 

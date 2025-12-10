@@ -1122,7 +1122,7 @@ func TestExpandMounts_MultipleMounts(t *testing.T) {
 func TestExpandMounts_UnsupportedScheme(t *testing.T) {
 	mounts := []string{
 		"file:///local/path", // Not supported yet
-		"cw://bucket/prefix", // Not supported yet
+		"nfs://server/path",  // Not supported yet
 	}
 
 	sidecars := expandMounts(mounts)
@@ -1330,5 +1330,148 @@ func TestExpandMounts_SSHFSCustomMountPoint(t *testing.T) {
 
 	if !strings.Contains(args[0], "/opt/data") {
 		t.Errorf("expected args to contain '/opt/data', got %s", args[0])
+	}
+}
+
+func TestParseCWMountURI(t *testing.T) {
+	tests := []struct {
+		uri        string
+		bucket     string
+		subpath    string
+		mountPoint string
+	}{
+		{"cw://mybucket", "mybucket", "", ""},
+		{"cw://mybucket/data", "mybucket", "data", ""},
+		{"cw://mybucket/data/subdir", "mybucket", "data/subdir", ""},
+		{"cw://mybucket/data:/mnt/s3", "mybucket", "data", "/mnt/s3"},
+		{"cw://bucket:/custom", "bucket", "", "/custom"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.uri, func(t *testing.T) {
+			bucket, subpath, mount := parseCWMountURI(tc.uri)
+			if bucket != tc.bucket {
+				t.Errorf("bucket: expected %q, got %q", tc.bucket, bucket)
+			}
+			if subpath != tc.subpath {
+				t.Errorf("subpath: expected %q, got %q", tc.subpath, subpath)
+			}
+			if mount != tc.mountPoint {
+				t.Errorf("mountPoint: expected %q, got %q", tc.mountPoint, mount)
+			}
+		})
+	}
+}
+
+func TestExpandMounts_CW(t *testing.T) {
+	mounts := []string{"cw://mybucket/data"}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	sidecar := sidecars[0]
+	if sidecar.Name != "cw-0" {
+		t.Errorf("expected name 'cw-0', got %q", sidecar.Name)
+	}
+
+	if !strings.Contains(sidecar.Image, "s3fs") {
+		t.Errorf("expected image to contain 's3fs', got %q", sidecar.Image)
+	}
+
+	if len(sidecar.Args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(sidecar.Args))
+	}
+
+	// Check that the command contains the bucket path
+	if !strings.Contains(sidecar.Args[0], "mybucket:/data") {
+		t.Errorf("expected args to contain 'mybucket:/data', got %s", sidecar.Args[0])
+	}
+
+	// Check that it uses the LOTA endpoint by default
+	if !strings.Contains(sidecar.Args[0], "cwlota.com") {
+		t.Errorf("expected args to contain 'cwlota.com', got %s", sidecar.Args[0])
+	}
+}
+
+func TestExpandMounts_CWCustomMountPoint(t *testing.T) {
+	mounts := []string{"cw://mybucket/data:/mnt/s3"}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	args := sidecars[0].Args
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(args))
+	}
+
+	if !strings.Contains(args[0], "/mnt/s3") {
+		t.Errorf("expected args to contain '/mnt/s3', got %s", args[0])
+	}
+}
+
+func TestExpandMounts_CWBucketOnly(t *testing.T) {
+	mounts := []string{"cw://mybucket"}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	args := sidecars[0].Args
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(args))
+	}
+
+	// Should mount just the bucket (no :/ path)
+	if !strings.Contains(args[0], "s3fs mybucket /home/marimo") {
+		t.Errorf("expected args to contain 's3fs mybucket /home/marimo', got %s", args[0])
+	}
+}
+
+func TestExpandMounts_CWSecretReference(t *testing.T) {
+	mounts := []string{"cw://mybucket/data"}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	sidecar := sidecars[0]
+
+	// Should have 2 env vars referencing the cw-credentials secret
+	if len(sidecar.Env) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(sidecar.Env))
+	}
+
+	// Check AWS_ACCESS_KEY_ID
+	accessKeyEnv := sidecar.Env[0]
+	if accessKeyEnv.Name != "AWS_ACCESS_KEY_ID" {
+		t.Errorf("expected first env var to be AWS_ACCESS_KEY_ID, got %s", accessKeyEnv.Name)
+	}
+	if accessKeyEnv.ValueFrom == nil || accessKeyEnv.ValueFrom.SecretKeyRef == nil {
+		t.Fatal("expected AWS_ACCESS_KEY_ID to have secretKeyRef")
+	}
+	if accessKeyEnv.ValueFrom.SecretKeyRef.Name != CWCredentialsSecret {
+		t.Errorf("expected secret name %q, got %q", CWCredentialsSecret, accessKeyEnv.ValueFrom.SecretKeyRef.Name)
+	}
+
+	// Check AWS_SECRET_ACCESS_KEY
+	secretKeyEnv := sidecar.Env[1]
+	if secretKeyEnv.Name != "AWS_SECRET_ACCESS_KEY" {
+		t.Errorf("expected second env var to be AWS_SECRET_ACCESS_KEY, got %s", secretKeyEnv.Name)
+	}
+	if secretKeyEnv.ValueFrom == nil || secretKeyEnv.ValueFrom.SecretKeyRef == nil {
+		t.Fatal("expected AWS_SECRET_ACCESS_KEY to have secretKeyRef")
+	}
+	if secretKeyEnv.ValueFrom.SecretKeyRef.Name != CWCredentialsSecret {
+		t.Errorf("expected secret name %q, got %q", CWCredentialsSecret, secretKeyEnv.ValueFrom.SecretKeyRef.Name)
 	}
 }

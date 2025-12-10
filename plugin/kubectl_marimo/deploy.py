@@ -1,5 +1,7 @@
 """Deploy command implementation."""
 
+import configparser
+import os
 import re
 import socket
 import subprocess
@@ -15,6 +17,72 @@ from .k8s import apply_resource
 from .resources import build_marimo_notebook, resource_name, compute_hash, to_yaml
 from .swap import read_swap_file, write_swap_file, create_swap_meta
 from .sync import sync_notebook
+
+
+def ensure_cw_credentials(namespace: str) -> bool:
+    """Create cw-credentials secret from ~/.s3cfg if needed.
+
+    Args:
+        namespace: Kubernetes namespace
+
+    Returns:
+        True if secret exists or was created, False if no credentials available
+    """
+    s3cfg_path = os.path.expanduser("~/.s3cfg")
+    if not os.path.exists(s3cfg_path):
+        click.echo(
+            "Warning: ~/.s3cfg not found. Run 's3cmd --configure' to set up credentials.",
+            err=True,
+        )
+        return False
+
+    # Check if secret already exists
+    result = subprocess.run(
+        ["kubectl", "get", "secret", "cw-credentials", "-n", namespace],
+        capture_output=True,
+    )
+    if result.returncode == 0:
+        return True  # Already exists
+
+    # Parse ~/.s3cfg
+    config = configparser.ConfigParser()
+    config.read(s3cfg_path)
+
+    try:
+        access_key = config.get("default", "access_key")
+        secret_key = config.get("default", "secret_key")
+    except (configparser.NoSectionError, configparser.NoOptionError) as e:
+        click.echo(f"Warning: Could not read credentials from ~/.s3cfg: {e}", err=True)
+        return False
+
+    # Create secret
+    result = subprocess.run(
+        [
+            "kubectl",
+            "create",
+            "secret",
+            "generic",
+            "cw-credentials",
+            "-n",
+            namespace,
+            f"--from-literal=AWS_ACCESS_KEY_ID={access_key}",
+            f"--from-literal=AWS_SECRET_ACCESS_KEY={secret_key}",
+        ],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        click.echo(f"Warning: Failed to create cw-credentials secret: {result.stderr}", err=True)
+        return False
+
+    click.echo(f"Created cw-credentials secret in namespace {namespace}")
+    return True
+
+
+def has_cw_mounts(resource: dict) -> bool:
+    """Check if resource has any cw:// mounts."""
+    mounts = resource.get("spec", {}).get("mounts", [])
+    return any(m.startswith("cw://") for m in mounts)
 
 
 def deploy_notebook(
@@ -82,6 +150,10 @@ def deploy_notebook(
             for src, dest, scheme in local_mounts:
                 click.echo(f"#   {src} → {dest}")
         return
+
+    # Ensure cw-credentials secret exists if using cw:// mounts
+    if has_cw_mounts(resource):
+        ensure_cw_credentials(namespace)
 
     # Apply to cluster
     if not apply_resource(resource):
