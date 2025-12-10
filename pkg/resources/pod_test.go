@@ -1462,3 +1462,101 @@ func TestExpandMounts_CWSecretReference(t *testing.T) {
 		t.Errorf("expected secret name %q, got %q", CWCredentialsSecret, secretKeyEnv.ValueFrom.SecretKeyRef.Name)
 	}
 }
+
+func TestBuildPod_MountPropagation_WithFUSESidecar(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:   "ghcr.io/marimo-team/marimo:latest",
+			Port:    2718,
+			Content: ptrString("# test notebook"),
+			Storage: &marimov1alpha1.StorageSpec{Size: "1Gi"},
+			Mounts:  []string{"cw://mybucket"},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Find marimo container
+	var marimoContainer *corev1.Container
+	var cwContainer *corev1.Container
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == "marimo" {
+			marimoContainer = &pod.Spec.Containers[i]
+		}
+		if pod.Spec.Containers[i].Name == "cw-0" {
+			cwContainer = &pod.Spec.Containers[i]
+		}
+	}
+
+	if marimoContainer == nil {
+		t.Fatal("marimo container not found")
+	}
+	if cwContainer == nil {
+		t.Fatal("cw-0 container not found")
+	}
+
+	// Check marimo has HostToContainer propagation on PVC mount
+	for _, vm := range marimoContainer.VolumeMounts {
+		if vm.Name == PVCVolumeName {
+			if vm.MountPropagation == nil {
+				t.Error("marimo container PVC mount should have MountPropagation set")
+			} else if *vm.MountPropagation != corev1.MountPropagationHostToContainer {
+				t.Errorf("marimo container PVC mount should have HostToContainer propagation, got %v", *vm.MountPropagation)
+			}
+		}
+	}
+
+	// Check cw-0 has Bidirectional propagation on PVC mount
+	for _, vm := range cwContainer.VolumeMounts {
+		if vm.Name == PVCVolumeName {
+			if vm.MountPropagation == nil {
+				t.Error("cw-0 container PVC mount should have MountPropagation set")
+			} else if *vm.MountPropagation != corev1.MountPropagationBidirectional {
+				t.Errorf("cw-0 container PVC mount should have Bidirectional propagation, got %v", *vm.MountPropagation)
+			}
+		}
+	}
+}
+
+func TestBuildPod_MountPropagation_WithoutFUSESidecar(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:   "ghcr.io/marimo-team/marimo:latest",
+			Port:    2718,
+			Content: ptrString("# test notebook"),
+			Storage: &marimov1alpha1.StorageSpec{Size: "1Gi"},
+			// No FUSE mounts
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Find marimo container
+	var marimoContainer *corev1.Container
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == "marimo" {
+			marimoContainer = &pod.Spec.Containers[i]
+		}
+	}
+
+	if marimoContainer == nil {
+		t.Fatal("marimo container not found")
+	}
+
+	// Check marimo does NOT have propagation set (no FUSE sidecars)
+	for _, vm := range marimoContainer.VolumeMounts {
+		if vm.Name == PVCVolumeName {
+			if vm.MountPropagation != nil {
+				t.Errorf("marimo container PVC mount should NOT have MountPropagation when no FUSE sidecars, got %v", *vm.MountPropagation)
+			}
+		}
+	}
+}

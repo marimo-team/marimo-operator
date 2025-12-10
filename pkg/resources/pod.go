@@ -197,6 +197,33 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	// Append user-provided env vars (allows overrides)
 	containerEnv := append(baseEnv, notebook.Spec.Env...)
 
+	// Expand mounts to sidecars and merge with explicit sidecars
+	// (do this first so we can check for FUSE sidecars)
+	allSidecars := expandMounts(notebook.Spec.Mounts)
+	allSidecars = append(allSidecars, notebook.Spec.Sidecars...)
+
+	// Check if any sidecar uses FUSE (privileged) - if so, marimo container needs HostToContainer propagation
+	hasFUSESidecar := false
+	for _, sidecar := range allSidecars {
+		if sidecar.SecurityContext != nil && sidecar.SecurityContext.Privileged != nil && *sidecar.SecurityContext.Privileged {
+			hasFUSESidecar = true
+			break
+		}
+	}
+
+	// If there are FUSE sidecars, update marimo's volume mount with HostToContainer propagation
+	marimoVolumeMounts := volumeMounts
+	if hasFUSESidecar {
+		marimoVolumeMounts = make([]corev1.VolumeMount, len(volumeMounts))
+		copy(marimoVolumeMounts, volumeMounts)
+		hostToContainer := corev1.MountPropagationHostToContainer
+		for i := range marimoVolumeMounts {
+			if marimoVolumeMounts[i].Name == PVCVolumeName {
+				marimoVolumeMounts[i].MountPropagation = &hostToContainer
+			}
+		}
+	}
+
 	// Build main containers list starting with marimo
 	// Command and args are passed directly - no shell wrapper needed
 	containers := []corev1.Container{
@@ -214,14 +241,10 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
-			VolumeMounts: volumeMounts,
+			VolumeMounts: marimoVolumeMounts,
 			Resources:    buildResourceRequirements(notebook.Spec.Resources),
 		},
 	}
-
-	// Expand mounts to sidecars and merge with explicit sidecars
-	allSidecars := expandMounts(notebook.Spec.Mounts)
-	allSidecars = append(allSidecars, notebook.Spec.Sidecars...)
 
 	// Add sidecar containers (they share the PVC volume)
 	for _, sidecar := range allSidecars {
@@ -252,14 +275,30 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 
 // buildSidecarContainer creates a container spec from a SidecarSpec.
 // Sidecars share the PVC volume with the main marimo container.
+// FUSE-based sidecars (with privileged security context) get Bidirectional mount propagation.
 func buildSidecarContainer(sidecar marimov1alpha1.SidecarSpec, volumeMounts []corev1.VolumeMount) corev1.Container {
+	// Copy volume mounts so we can modify them for this container
+	sidecarMounts := make([]corev1.VolumeMount, len(volumeMounts))
+	copy(sidecarMounts, volumeMounts)
+
+	// If this sidecar needs privileged access (FUSE), set Bidirectional mount propagation
+	// so FUSE mounts inside the sidecar are visible to other containers
+	if sidecar.SecurityContext != nil && sidecar.SecurityContext.Privileged != nil && *sidecar.SecurityContext.Privileged {
+		bidirectional := corev1.MountPropagationBidirectional
+		for i := range sidecarMounts {
+			if sidecarMounts[i].Name == PVCVolumeName {
+				sidecarMounts[i].MountPropagation = &bidirectional
+			}
+		}
+	}
+
 	container := corev1.Container{
 		Name:         sidecar.Name,
 		Image:        sidecar.Image,
 		Env:          sidecar.Env,
 		Command:      sidecar.Command,
 		Args:         sidecar.Args,
-		VolumeMounts: volumeMounts, // Share PVC volume
+		VolumeMounts: sidecarMounts, // Share PVC volume (with propagation if FUSE)
 	}
 
 	// Add port if ExposePort is set
@@ -573,4 +612,9 @@ func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 // ptrBool returns a pointer to a bool value.
 func ptrBool(b bool) *bool {
 	return &b
+}
+
+// ptrString returns a pointer to a string value.
+func ptrString(s string) *string {
+	return &s
 }
