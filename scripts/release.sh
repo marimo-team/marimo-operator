@@ -76,7 +76,7 @@ print_step "Pulling latest changes"
 git pull origin main
 
 # Get current version from plugin (source of truth)
-CURRENT_VERSION=$(grep -oP '(?<=__version__ = ")[^"]+' plugin/kubectl_marimo/__init__.py)
+CURRENT_VERSION=$(sed -n 's/^__version__ = "\([^"]*\)"/\1/p' plugin/kubectl_marimo/__init__.py)
 echo "Current version: $CURRENT_VERSION"
 
 # Parse version parts
