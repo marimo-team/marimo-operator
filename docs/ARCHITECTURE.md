@@ -245,6 +245,7 @@ All auto-generated sidecars use images configurable via operator environment var
 | `GIT_IMAGE` | `alpine/git:latest` | git clone sidecar |
 | `ALPINE_IMAGE` | `alpine:latest` | sshfs + file:// mount sidecars |
 | `S3FS_IMAGE` | `ghcr.io/marimo-team/marimo-operator/s3fs:latest` | cw:// mount sidecar |
+| `S3_ENDPOINT` | `https://cwobject.com` | S3 endpoint for cw:// mounts |
 
 Benefits:
 1. Air-gapped clusters can use internal registries

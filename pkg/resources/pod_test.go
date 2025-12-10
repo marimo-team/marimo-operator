@@ -491,13 +491,13 @@ func TestBuildPod_InitContainer_IdempotentClone(t *testing.T) {
 		t.Fatal("expected git-clone command with shell script")
 	}
 	script := gitClone.Command[2]
-	if !contains(script, "if [ -d") || !contains(script, ".git ]") {
+	if !strings.Contains(script, "if [ -d") || !strings.Contains(script, ".git ]") {
 		t.Error("git-clone should check for existing .git directory")
 	}
-	if !contains(script, "skipping clone") {
+	if !strings.Contains(script, "skipping clone") {
 		t.Error("git-clone should skip clone if repo exists")
 	}
-	if !contains(script, "git clone") {
+	if !strings.Contains(script, "git clone") {
 		t.Error("git-clone should clone if repo doesn't exist")
 	}
 
@@ -509,19 +509,6 @@ func TestBuildPod_InitContainer_IdempotentClone(t *testing.T) {
 	if setupVenv.Image != "ghcr.io/marimo-team/marimo:latest" {
 		t.Errorf("setup-venv should use marimo image, got '%s'", setupVenv.Image)
 	}
-}
-
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
-}
-
-func containsHelper(s, substr string) bool {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return true
-		}
-	}
-	return false
 }
 
 func TestBuildPod_WithSidecar(t *testing.T) {

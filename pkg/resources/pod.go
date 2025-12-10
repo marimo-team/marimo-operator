@@ -3,7 +3,6 @@ package resources
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
@@ -574,23 +573,4 @@ func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 // ptrBool returns a pointer to a bool value.
 func ptrBool(b bool) *bool {
 	return &b
-}
-
-// parseSSHFSURI parses an sshfs:// URI and returns user, host, path.
-func parseSSHFSURI(uri string) (user, host, path string, err error) {
-	// Try standard URL parsing first
-	u, parseErr := url.Parse(uri)
-	if parseErr != nil {
-		return "", "", "", parseErr
-	}
-
-	if u.Scheme != "sshfs" {
-		return "", "", "", fmt.Errorf("invalid scheme: %s", u.Scheme)
-	}
-
-	user = u.User.Username()
-	host = u.Host
-	path = u.Path
-
-	return user, host, path, nil
 }
