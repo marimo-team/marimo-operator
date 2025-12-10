@@ -71,6 +71,11 @@ type SidecarSpec struct {
 	// Resources for the sidecar container
 	// +optional
 	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
+
+	// SecurityContext for the sidecar container
+	// Required for FUSE-based mounts (s3fs, sshfs) which need privileged access
+	// +optional
+	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
 }
 
 // MarimoNotebookSpec defines the desired state of MarimoNotebook.

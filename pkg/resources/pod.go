@@ -279,6 +279,11 @@ func buildSidecarContainer(sidecar marimov1alpha1.SidecarSpec, volumeMounts []co
 		container.Resources = *sidecar.Resources
 	}
 
+	// Add security context if specified (needed for FUSE-based mounts)
+	if sidecar.SecurityContext != nil {
+		container.SecurityContext = sidecar.SecurityContext
+	}
+
 	return container
 }
 
@@ -440,6 +445,10 @@ func buildSSHFSSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 			// SSH key should be mounted from a secret named "ssh-credentials"
 			// The user can configure this via podOverrides if needed
 		},
+		// FUSE requires privileged access to /dev/fuse
+		SecurityContext: &corev1.SecurityContext{
+			Privileged: ptrBool(true),
+		},
 	}
 }
 
@@ -556,7 +565,16 @@ func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 				},
 			},
 		},
+		// FUSE requires privileged access to /dev/fuse
+		SecurityContext: &corev1.SecurityContext{
+			Privileged: ptrBool(true),
+		},
 	}
+}
+
+// ptrBool returns a pointer to a bool value.
+func ptrBool(b bool) *bool {
+	return &b
 }
 
 // parseSSHFSURI parses an sshfs:// URI and returns user, host, path.
