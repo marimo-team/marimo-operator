@@ -1,6 +1,6 @@
 # marimo-operator
 
-A Kubernetes operator for deploying [marimo](https://marimo.io) notebooks.
+A Kubernetes operator for deploying [marimo](https://github.com/marimo-team/marimo) notebooks.
 
 ## Features
 
