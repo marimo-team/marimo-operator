@@ -9,11 +9,15 @@ import (
 	marimov1alpha1 "github.com/marimo-team/marimo-operator/api/v1alpha1"
 )
 
+const (
+	httpPortName = "http"
+)
+
 func TestBuildService_BasicConfig(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Image:  "ghcr.io/marimo-team/marimo:latest",
@@ -25,24 +29,29 @@ func TestBuildService_BasicConfig(t *testing.T) {
 	svc := BuildService(notebook)
 
 	// Check metadata
-	if svc.Name != "test-notebook" {
-		t.Errorf("expected service name 'test-notebook', got '%s'", svc.Name)
+	if svc.Name != testNotebookName {
+		t.Errorf("expected service name '%s', got '%s'", testNotebookName, svc.Name)
 	}
-	if svc.Namespace != "default" {
-		t.Errorf("expected namespace 'default', got '%s'", svc.Namespace)
+	if svc.Namespace != testNamespace {
+		t.Errorf("expected namespace '%s', got '%s'", testNamespace, svc.Namespace)
 	}
 
 	// Check labels
-	if svc.Labels["app.kubernetes.io/name"] != "marimo" {
-		t.Errorf("expected label app.kubernetes.io/name='marimo', got '%s'", svc.Labels["app.kubernetes.io/name"])
+	if svc.Labels["app.kubernetes.io/name"] != testMarimoContainer {
+		t.Errorf("expected label app.kubernetes.io/name='%s', got '%s'",
+			testMarimoContainer, svc.Labels["app.kubernetes.io/name"])
 	}
-	if svc.Labels["app.kubernetes.io/instance"] != "test-notebook" {
-		t.Errorf("expected label app.kubernetes.io/instance='test-notebook', got '%s'", svc.Labels["app.kubernetes.io/instance"])
+	if svc.Labels["app.kubernetes.io/instance"] != testNotebookName {
+		t.Errorf(
+			"expected label app.kubernetes.io/instance='%s', got '%s'",
+			testNotebookName, svc.Labels["app.kubernetes.io/instance"])
 	}
 
 	// Check selector
-	if svc.Spec.Selector["app.kubernetes.io/instance"] != "test-notebook" {
-		t.Errorf("expected selector app.kubernetes.io/instance='test-notebook', got '%s'", svc.Spec.Selector["app.kubernetes.io/instance"])
+	if svc.Spec.Selector["app.kubernetes.io/instance"] != testNotebookName {
+		t.Errorf(
+			"expected selector app.kubernetes.io/instance='%s', got '%s'",
+			testNotebookName, svc.Spec.Selector["app.kubernetes.io/instance"])
 	}
 
 	// Check service type
@@ -55,8 +64,8 @@ func TestBuildService_BasicConfig(t *testing.T) {
 		t.Fatalf("expected 1 port, got %d", len(svc.Spec.Ports))
 	}
 	port := svc.Spec.Ports[0]
-	if port.Name != "http" {
-		t.Errorf("expected port name 'http', got '%s'", port.Name)
+	if port.Name != httpPortName {
+		t.Errorf("expected port name '%s', got '%s'", httpPortName, port.Name)
 	}
 	if port.Port != 2718 {
 		t.Errorf("expected port 2718, got %d", port.Port)
@@ -72,8 +81,8 @@ func TestBuildService_BasicConfig(t *testing.T) {
 func TestBuildService_CustomPort(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Port:   8080,
@@ -98,8 +107,8 @@ func TestBuildService_WithSidecarPorts(t *testing.T) {
 	sshPort := int32(2222)
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Port:   2718,
@@ -126,9 +135,9 @@ func TestBuildService_WithSidecarPorts(t *testing.T) {
 	for i := range svc.Spec.Ports {
 		p := &svc.Spec.Ports[i]
 		switch p.Name {
-		case "http":
+		case httpPortName:
 			httpPort = p
-		case "sshd":
+		case testSSHDContainer:
 			sshdPort = p
 		}
 	}
@@ -154,8 +163,8 @@ func TestBuildService_WithSidecarPorts(t *testing.T) {
 func TestBuildService_SidecarWithoutExposePort(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Port:   2718,
@@ -174,10 +183,12 @@ func TestBuildService_SidecarWithoutExposePort(t *testing.T) {
 
 	// Should only have 1 port (http)
 	if len(svc.Spec.Ports) != 1 {
-		t.Fatalf("expected 1 port (sidecar without ExposePort should not add ports), got %d", len(svc.Spec.Ports))
+		t.Fatalf(
+			"expected 1 port (sidecar without ExposePort should not add ports), got %d",
+			len(svc.Spec.Ports))
 	}
-	if svc.Spec.Ports[0].Name != "http" {
-		t.Errorf("expected only 'http' port, got '%s'", svc.Spec.Ports[0].Name)
+	if svc.Spec.Ports[0].Name != httpPortName {
+		t.Errorf("expected only '%s' port, got '%s'", httpPortName, svc.Spec.Ports[0].Name)
 	}
 }
 
@@ -186,8 +197,8 @@ func TestBuildService_MultipleSidecarsWithPorts(t *testing.T) {
 	gitPort := int32(9418)
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Port:   2718,
@@ -234,14 +245,14 @@ func TestLabels(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-notebook",
-			Namespace: "default",
+			Namespace: testNamespace,
 		},
 	}
 
 	labels := Labels(notebook)
 
 	expected := map[string]string{
-		"app.kubernetes.io/name":       "marimo",
+		"app.kubernetes.io/name":       testMarimoContainer,
 		"app.kubernetes.io/instance":   "my-notebook",
 		"app.kubernetes.io/managed-by": "marimo-operator",
 	}

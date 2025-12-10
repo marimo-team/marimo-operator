@@ -16,6 +16,8 @@ import (
 const (
 	// NotebookDir is the directory where notebooks are stored.
 	NotebookDir = "/home/marimo/notebooks"
+	// DefaultMode is the default mode for running marimo.
+	DefaultMode = "edit"
 )
 
 // BuildPod creates a Pod spec for a MarimoNotebook.
@@ -128,7 +130,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	}
 
 	// Determine mode: use spec.Mode or default to "edit"
-	mode := "edit"
+	mode := DefaultMode
 	if notebook.Spec.Mode != "" {
 		mode = notebook.Spec.Mode
 	}
@@ -202,10 +204,12 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	allSidecars := expandMounts(notebook.Spec.Mounts)
 	allSidecars = append(allSidecars, notebook.Spec.Sidecars...)
 
-	// Check if any sidecar uses FUSE (privileged) - if so, marimo container needs HostToContainer propagation
+	// Check if any sidecar uses FUSE (privileged) - if so, marimo container needs
+	// HostToContainer propagation
 	hasFUSESidecar := false
 	for _, sidecar := range allSidecars {
-		if sidecar.SecurityContext != nil && sidecar.SecurityContext.Privileged != nil && *sidecar.SecurityContext.Privileged {
+		if sidecar.SecurityContext != nil && sidecar.SecurityContext.Privileged != nil &&
+			*sidecar.SecurityContext.Privileged {
 			hasFUSESidecar = true
 			break
 		}
@@ -472,7 +476,9 @@ func buildSSHFSSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 		Command: []string{"sh", "-c"},
 		Args: []string{
 			fmt.Sprintf(
-				"apk add --no-cache sshfs openssh-client && mkdir -p %s && sshfs -o StrictHostKeyChecking=no,UserKnownHostsFile=/dev/null,reconnect,ServerAliveInterval=15,allow_other %s:%s %s && sleep infinity",
+				"apk add --no-cache sshfs openssh-client && mkdir -p %s && "+
+					"sshfs -o StrictHostKeyChecking=no,UserKnownHostsFile=/dev/null,"+
+					"reconnect,ServerAliveInterval=15,allow_other %s:%s %s && sleep infinity",
 				localMountPoint,
 				userHost,
 				remotePath,
@@ -517,10 +523,13 @@ func buildRsyncSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 				"apk add --no-cache openssh-client rsync inotify-tools && "+
 					"mkdir -p %s && "+
 					"echo 'Initial sync from %s:%s' && "+
-					"rsync -avz -e 'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' %s:%s/ %s/ || echo 'Initial sync failed (check SSH credentials)' && "+
+					"rsync -avz -e 'ssh -o StrictHostKeyChecking=no "+
+					"-o UserKnownHostsFile=/dev/null' %s:%s/ %s/ || "+
+					"echo 'Initial sync failed (check SSH credentials)' && "+
 					"echo 'Watching for changes...' && "+
 					"while inotifywait -r -e modify,create,delete %s 2>/dev/null; do "+
-					"rsync -avz -e 'ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null' %s/ %s:%s/; "+
+					"rsync -avz -e 'ssh -o StrictHostKeyChecking=no "+
+					"-o UserKnownHostsFile=/dev/null' %s/ %s:%s/; "+
 					"done",
 				localMountPoint,
 				userHost, remotePath,

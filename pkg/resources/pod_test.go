@@ -11,11 +11,18 @@ import (
 	marimov1alpha1 "github.com/marimo-team/marimo-operator/api/v1alpha1"
 )
 
+const (
+	testMarimoContainer = "marimo"
+	testSetupVenv       = "setup-venv"
+	testSSHDContainer   = "sshd"
+	testSSHFSName       = "sshfs-0"
+)
+
 func TestBuildPod_BasicConfig(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Image:  "ghcr.io/marimo-team/marimo:latest",
@@ -27,19 +34,22 @@ func TestBuildPod_BasicConfig(t *testing.T) {
 	pod := BuildPod(notebook)
 
 	// Check metadata
-	if pod.Name != "test-notebook" {
-		t.Errorf("expected pod name 'test-notebook', got '%s'", pod.Name)
+	if pod.Name != testNotebookName {
+		t.Errorf("expected pod name '%s', got '%s'", testNotebookName, pod.Name)
 	}
-	if pod.Namespace != "default" {
-		t.Errorf("expected namespace 'default', got '%s'", pod.Namespace)
+	if pod.Namespace != testNamespace {
+		t.Errorf("expected namespace '%s', got '%s'", testNamespace, pod.Namespace)
 	}
 
 	// Check labels
-	if pod.Labels["app.kubernetes.io/name"] != "marimo" {
-		t.Errorf("expected label app.kubernetes.io/name='marimo', got '%s'", pod.Labels["app.kubernetes.io/name"])
+	if pod.Labels["app.kubernetes.io/name"] != testMarimoContainer {
+		t.Errorf("expected label app.kubernetes.io/name='%s', got '%s'",
+			testMarimoContainer, pod.Labels["app.kubernetes.io/name"])
 	}
-	if pod.Labels["app.kubernetes.io/instance"] != "test-notebook" {
-		t.Errorf("expected label app.kubernetes.io/instance='test-notebook', got '%s'", pod.Labels["app.kubernetes.io/instance"])
+	if pod.Labels["app.kubernetes.io/instance"] != testNotebookName {
+		t.Errorf(
+			"expected label app.kubernetes.io/instance='%s', got '%s'",
+			testNotebookName, pod.Labels["app.kubernetes.io/instance"])
 	}
 
 	// Check main container
@@ -47,15 +57,15 @@ func TestBuildPod_BasicConfig(t *testing.T) {
 		t.Fatalf("expected 1 container, got %d", len(pod.Spec.Containers))
 	}
 	container := pod.Spec.Containers[0]
-	if container.Name != "marimo" {
-		t.Errorf("expected container name 'marimo', got '%s'", container.Name)
+	if container.Name != testMarimoContainer {
+		t.Errorf("expected container name '%s', got '%s'", testMarimoContainer, container.Name)
 	}
 	if container.Image != "ghcr.io/marimo-team/marimo:latest" {
 		t.Errorf("expected image 'ghcr.io/marimo-team/marimo:latest', got '%s'", container.Image)
 	}
 	// Command should run marimo directly (no shell wrapper)
-	if container.Command[0] != "marimo" {
-		t.Errorf("expected command 'marimo', got '%s'", container.Command[0])
+	if container.Command[0] != testMarimoContainer {
+		t.Errorf("expected command '%s', got '%s'", testMarimoContainer, container.Command[0])
 	}
 	// Args should contain the marimo arguments
 	if len(container.Args) == 0 {
@@ -84,8 +94,9 @@ func TestBuildPod_BasicConfig(t *testing.T) {
 		t.Errorf("expected init image 'alpine/git:latest', got '%s'", gitClone.Image)
 	}
 	setupVenv := pod.Spec.InitContainers[1]
-	if setupVenv.Name != "setup-venv" {
-		t.Errorf("expected second init container name 'setup-venv', got '%s'", setupVenv.Name)
+	if setupVenv.Name != testSetupVenv {
+		t.Errorf("expected second init container name '%s', got '%s'",
+			testSetupVenv, setupVenv.Name)
 	}
 
 	// Check volume mounts
@@ -503,8 +514,9 @@ func TestBuildPod_InitContainer_IdempotentClone(t *testing.T) {
 
 	// Check setup-venv init container
 	setupVenv := pod.Spec.InitContainers[1]
-	if setupVenv.Name != "setup-venv" {
-		t.Errorf("expected second init container 'setup-venv', got '%s'", setupVenv.Name)
+	if setupVenv.Name != testSetupVenv {
+		t.Errorf("expected second init container '%s', got '%s'",
+			testSetupVenv, setupVenv.Name)
 	}
 	if setupVenv.Image != "ghcr.io/marimo-team/marimo:latest" {
 		t.Errorf("setup-venv should use marimo image, got '%s'", setupVenv.Image)
@@ -526,7 +538,7 @@ func TestBuildPod_WithSidecar(t *testing.T) {
 			},
 			Sidecars: []marimov1alpha1.SidecarSpec{
 				{
-					Name:  "sshd",
+					Name:  testSSHDContainer,
 					Image: "linuxserver/openssh-server:latest",
 				},
 			},
@@ -541,14 +553,15 @@ func TestBuildPod_WithSidecar(t *testing.T) {
 	}
 
 	// Check marimo container is first
-	if pod.Spec.Containers[0].Name != "marimo" {
-		t.Errorf("expected first container to be 'marimo', got '%s'", pod.Spec.Containers[0].Name)
+	if pod.Spec.Containers[0].Name != testMarimoContainer {
+		t.Errorf("expected first container to be '%s', got '%s'",
+			testMarimoContainer, pod.Spec.Containers[0].Name)
 	}
 
 	// Check sidecar container
 	sidecar := pod.Spec.Containers[1]
-	if sidecar.Name != "sshd" {
-		t.Errorf("expected sidecar name 'sshd', got '%s'", sidecar.Name)
+	if sidecar.Name != testSSHDContainer {
+		t.Errorf("expected sidecar name '%s', got '%s'", testSSHDContainer, sidecar.Name)
 	}
 	if sidecar.Image != "linuxserver/openssh-server:latest" {
 		t.Errorf("expected sidecar image 'linuxserver/openssh-server:latest', got '%s'", sidecar.Image)
@@ -583,7 +596,7 @@ func TestBuildPod_SidecarWithExposePort(t *testing.T) {
 			},
 			Sidecars: []marimov1alpha1.SidecarSpec{
 				{
-					Name:       "sshd",
+					Name:       testSSHDContainer,
 					Image:      "linuxserver/openssh-server:latest",
 					ExposePort: &port,
 				},
@@ -602,8 +615,8 @@ func TestBuildPod_SidecarWithExposePort(t *testing.T) {
 	if sidecar.Ports[0].ContainerPort != 22 {
 		t.Errorf("expected sidecar port 22, got %d", sidecar.Ports[0].ContainerPort)
 	}
-	if sidecar.Ports[0].Name != "sshd" {
-		t.Errorf("expected port name 'sshd', got '%s'", sidecar.Ports[0].Name)
+	if sidecar.Ports[0].Name != testSSHDContainer {
+		t.Errorf("expected port name '%s', got '%s'", testSSHDContainer, sidecar.Ports[0].Name)
 	}
 }
 
@@ -726,7 +739,7 @@ func TestBuildPod_MultipleSidecars(t *testing.T) {
 			},
 			Sidecars: []marimov1alpha1.SidecarSpec{
 				{
-					Name:       "sshd",
+					Name:       testSSHDContainer,
 					Image:      "linuxserver/openssh-server:latest",
 					ExposePort: &sshPort,
 				},
@@ -746,11 +759,13 @@ func TestBuildPod_MultipleSidecars(t *testing.T) {
 	}
 
 	// Check container order
-	if pod.Spec.Containers[0].Name != "marimo" {
-		t.Errorf("expected first container 'marimo', got '%s'", pod.Spec.Containers[0].Name)
+	if pod.Spec.Containers[0].Name != testMarimoContainer {
+		t.Errorf("expected first container '%s', got '%s'",
+			testMarimoContainer, pod.Spec.Containers[0].Name)
 	}
-	if pod.Spec.Containers[1].Name != "sshd" {
-		t.Errorf("expected second container 'sshd', got '%s'", pod.Spec.Containers[1].Name)
+	if pod.Spec.Containers[1].Name != testSSHDContainer {
+		t.Errorf("expected second container '%s', got '%s'",
+			testSSHDContainer, pod.Spec.Containers[1].Name)
 	}
 	if pod.Spec.Containers[2].Name != "git-sync" {
 		t.Errorf("expected third container 'git-sync', got '%s'", pod.Spec.Containers[2].Name)
@@ -1064,8 +1079,8 @@ func TestExpandMounts_SSHFS(t *testing.T) {
 	}
 
 	sidecar := sidecars[0]
-	if sidecar.Name != "sshfs-0" {
-		t.Errorf("expected name 'sshfs-0', got '%s'", sidecar.Name)
+	if sidecar.Name != testSSHFSName {
+		t.Errorf("expected name '%s', got '%s'", testSSHFSName, sidecar.Name)
 	}
 	if sidecar.Image != "alpine:latest" {
 		t.Errorf("expected alpine:latest image, got '%s'", sidecar.Image)
@@ -1098,8 +1113,9 @@ func TestExpandMounts_MultipleMounts(t *testing.T) {
 		t.Fatalf("expected 2 sidecars, got %d", len(sidecars))
 	}
 
-	if sidecars[0].Name != "sshfs-0" {
-		t.Errorf("expected first sidecar name 'sshfs-0', got '%s'", sidecars[0].Name)
+	if sidecars[0].Name != testSSHFSName {
+		t.Errorf("expected first sidecar name '%s', got '%s'",
+			testSSHFSName, sidecars[0].Name)
 	}
 	if sidecars[1].Name != "sshfs-1" {
 		t.Errorf("expected second sidecar name 'sshfs-1', got '%s'", sidecars[1].Name)
@@ -1169,8 +1185,9 @@ func TestExpandMounts_MixedSchemes(t *testing.T) {
 		t.Fatalf("expected 2 sidecars, got %d", len(sidecars))
 	}
 
-	if sidecars[0].Name != "sshfs-0" {
-		t.Errorf("expected first sidecar name 'sshfs-0', got '%s'", sidecars[0].Name)
+	if sidecars[0].Name != testSSHFSName {
+		t.Errorf("expected first sidecar name '%s', got '%s'",
+			testSSHFSName, sidecars[0].Name)
 	}
 	if sidecars[1].Name != "rsync-1" {
 		t.Errorf("expected second sidecar name 'rsync-1', got '%s'", sidecars[1].Name)
@@ -1204,14 +1221,15 @@ func TestBuildPod_WithMounts(t *testing.T) {
 	}
 
 	// First container should be marimo
-	if pod.Spec.Containers[0].Name != "marimo" {
-		t.Errorf("expected first container to be 'marimo', got '%s'", pod.Spec.Containers[0].Name)
+	if pod.Spec.Containers[0].Name != testMarimoContainer {
+		t.Errorf("expected first container to be '%s', got '%s'",
+			testMarimoContainer, pod.Spec.Containers[0].Name)
 	}
 
 	// Second container should be sshfs sidecar
 	sshfsSidecar := pod.Spec.Containers[1]
-	if sshfsSidecar.Name != "sshfs-0" {
-		t.Errorf("expected sidecar name 'sshfs-0', got '%s'", sshfsSidecar.Name)
+	if sshfsSidecar.Name != testSSHFSName {
+		t.Errorf("expected sidecar name '%s', got '%s'", testSSHFSName, sshfsSidecar.Name)
 	}
 }
 
@@ -1484,7 +1502,7 @@ func TestBuildPod_MountPropagation_WithFUSESidecar(t *testing.T) {
 	var marimoContainer *corev1.Container
 	var cwContainer *corev1.Container
 	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Name == "marimo" {
+		if pod.Spec.Containers[i].Name == testMarimoContainer {
 			marimoContainer = &pod.Spec.Containers[i]
 		}
 		if pod.Spec.Containers[i].Name == "cw-0" {
@@ -1505,7 +1523,9 @@ func TestBuildPod_MountPropagation_WithFUSESidecar(t *testing.T) {
 			if vm.MountPropagation == nil {
 				t.Error("marimo container PVC mount should have MountPropagation set")
 			} else if *vm.MountPropagation != corev1.MountPropagationHostToContainer {
-				t.Errorf("marimo container PVC mount should have HostToContainer propagation, got %v", *vm.MountPropagation)
+				t.Errorf(
+					"marimo container PVC mount should have HostToContainer propagation, got %v",
+					*vm.MountPropagation)
 			}
 		}
 	}
@@ -1542,7 +1562,7 @@ func TestBuildPod_MountPropagation_WithoutFUSESidecar(t *testing.T) {
 	// Find marimo container
 	var marimoContainer *corev1.Container
 	for i := range pod.Spec.Containers {
-		if pod.Spec.Containers[i].Name == "marimo" {
+		if pod.Spec.Containers[i].Name == testMarimoContainer {
 			marimoContainer = &pod.Spec.Containers[i]
 		}
 	}
@@ -1555,7 +1575,10 @@ func TestBuildPod_MountPropagation_WithoutFUSESidecar(t *testing.T) {
 	for _, vm := range marimoContainer.VolumeMounts {
 		if vm.Name == PVCVolumeName {
 			if vm.MountPropagation != nil {
-				t.Errorf("marimo container PVC mount should NOT have MountPropagation when no FUSE sidecars, got %v", *vm.MountPropagation)
+				t.Errorf(
+					"marimo container PVC mount should NOT have MountPropagation "+
+						"when no FUSE sidecars, got %v",
+					*vm.MountPropagation)
 			}
 		}
 	}

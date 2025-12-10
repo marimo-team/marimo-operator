@@ -42,7 +42,7 @@ var _ = Describe("MarimoNotebook Controller", func() {
 		BeforeEach(func() {
 			notebook = &marimov1alpha1.MarimoNotebook{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-notebook-" + randString(5),
+					Name:      "test-notebook-" + randString(),
 					Namespace: "default",
 				},
 				Spec: marimov1alpha1.MarimoNotebookSpec{
@@ -190,7 +190,7 @@ var _ = Describe("MarimoNotebook Controller", func() {
 		It("should create PVC with correct size", func() {
 			notebook := &marimov1alpha1.MarimoNotebook{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-pvc-" + randString(5),
+					Name:      "test-pvc-" + randString(),
 					Namespace: "default",
 				},
 				Spec: marimov1alpha1.MarimoNotebookSpec{
@@ -245,7 +245,7 @@ var _ = Describe("MarimoNotebook Controller", func() {
 		It("should not create PVC when storage is not specified", func() {
 			notebook := &marimov1alpha1.MarimoNotebook{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-no-pvc-" + randString(5),
+					Name:      "test-no-pvc-" + randString(),
 					Namespace: "default",
 				},
 				Spec: marimov1alpha1.MarimoNotebookSpec{
@@ -295,7 +295,7 @@ var _ = Describe("MarimoNotebook Controller", func() {
 			sshPort := int32(22)
 			notebook := &marimov1alpha1.MarimoNotebook{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-sidecar-" + randString(5),
+					Name:      "test-sidecar-" + randString(),
 					Namespace: "default",
 				},
 				Spec: marimov1alpha1.MarimoNotebookSpec{
@@ -374,7 +374,7 @@ var _ = Describe("MarimoNotebook Controller", func() {
 		It("should clean up owned resources via garbage collection", func() {
 			notebook := &marimov1alpha1.MarimoNotebook{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-delete-" + randString(5),
+					Name:      "test-delete-" + randString(),
 					Namespace: "default",
 				},
 				Spec: marimov1alpha1.MarimoNotebookSpec{
@@ -410,7 +410,7 @@ var _ = Describe("MarimoNotebook Controller", func() {
 		It("should not recreate existing resources", func() {
 			notebook := &marimov1alpha1.MarimoNotebook{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-idempotent-" + randString(5),
+					Name:      "test-idempotent-" + randString(),
 					Namespace: "default",
 				},
 				Spec: marimov1alpha1.MarimoNotebookSpec{
@@ -455,9 +455,10 @@ var _ = Describe("MarimoNotebook Controller", func() {
 })
 
 // randString generates a random string for unique test resource names
-func randString(n int) string {
+func randString() string {
 	const letters = "abcdefghijklmnopqrstuvwxyz"
-	b := make([]byte, n)
+	const length = 5
+	b := make([]byte, length)
 	for i := range b {
 		b[i] = letters[time.Now().UnixNano()%int64(len(letters))]
 		time.Sleep(time.Nanosecond)

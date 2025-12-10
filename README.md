@@ -9,13 +9,28 @@ A Kubernetes operator for deploying [marimo](https://marimo.io) notebooks.
 - **Resource management**: Memory, CPU, and GPU allocation per notebook
 - **Extensible sidecars**: Add custom containers for advanced use cases
 
-## Quickstart
+## Prerequisites
+
+- Kubernetes cluster (v1.25+)
+- `kubectl` configured with cluster access
+- Cluster admin permissions (for CRD installation)
+
+## Installation
 
 ```bash
-# Install the operator
-kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/main/deploy/install.yaml
+# Install CRD and operator
+kubectl apply -k https://github.com/marimo-team/marimo-operator/config/default
 
-# Deploy a notebook project
+# Verify installation
+kubectl get pods -n marimo-operator-system
+# Should show: marimo-operator-controller-manager-xxx  Running
+```
+
+## Quickstart
+
+### Option 1: Deploy from Git
+
+```bash
 kubectl apply -f - <<EOF
 apiVersion: marimo.io/v1alpha1
 kind: MarimoNotebook
@@ -31,41 +46,60 @@ EOF
 kubectl get marimos
 ```
 
-_Or_ deploy individual notebooks with the kubectl plugin:
+### Option 2: Use kubectl plugin for local files
 
 ```bash
 # Install plugin
-pip install kubectl-marimo  # or: kubectl krew install marimo
+pip install kubectl-marimo
 
-# Edit a notebook interactively
+# Edit a notebook interactively (deploys to cluster)
 kubectl marimo edit notebook.py
 
 # Run as read-only app
 kubectl marimo run notebook.py
 
-# With S3 storage
-kubectl marimo edit --source=cw://bucket/data notebook.py
-
-# Sync changes back
+# Sync changes back to local file
 kubectl marimo sync notebook.py
+```
+
+### Verify your notebook is running
+
+```bash
+# Check pod status
+kubectl get pods
+
+# View logs
+kubectl logs <pod-name> -c marimo
+
+# Port-forward to access
+kubectl port-forward svc/my-project 2718:2718
+# Open http://localhost:2718
 ```
 
 ## Usage
 
-### Deploy from Git
+### Source vs Content
+
+Use **`source`** for Git repositories (cloned into persistent storage):
 
 ```yaml
-apiVersion: marimo.io/v1alpha1
-kind: MarimoNotebook
-metadata:
-  name: my-project
 spec:
   source: https://github.com/org/notebooks.git
   storage:
     size: 1Gi
 ```
 
-The operator clones the repository into persistent storage and starts the marimo server.
+Use **`content`** for inline notebook code (via kubectl plugin or ConfigMap):
+
+```yaml
+spec:
+  content: |
+    import marimo
+    app = marimo.App()
+    @app.cell
+    def _():
+        return "Hello!"
+```
 
 ### Add Sidecars
 
@@ -120,6 +154,13 @@ spec:
 
 ### Authentication
 
+By default, marimo generates an authentication token (check pod logs). To use a password:
+
+```bash
+# Create secret
+kubectl create secret generic marimo-auth --from-literal=password=your-password
+```
+
 ```yaml
 spec:
   auth:
@@ -127,6 +168,31 @@ spec:
       secretKeyRef:
         name: marimo-auth
         key: password
+```
+
+To disable authentication (not recommended for production):
+
+```yaml
+spec:
+  auth: {}
+```
+
+## Troubleshooting
+
+```bash
+# Check operator logs
+kubectl logs -n marimo-operator-system -l control-plane=controller-manager
+
+# Check notebook status
+kubectl describe marimo <name>
+
+# Check pod events
+kubectl get events --field-selector involvedObject.name=<pod-name>
+
+# Common issues:
+# - "Pending" pod: Check storage class exists, PVC can be created
+# - "ImagePullBackOff": Check image name and registry access
+# - "CrashLoopBackOff": Check container logs for errors
 ```
 
 ## kubectl Plugin
@@ -142,23 +208,19 @@ kubectl marimo edit notebook.py
 # Read-only app mode
 kubectl marimo run notebook.py
 
-# With S3 storage
+# With S3 storage (CoreWeave)
 kubectl marimo edit --source=cw://bucket/data notebook.py
 
-# Sync and delete
+# Sync changes back and clean up
 kubectl marimo sync notebook.py
 kubectl marimo delete notebook.py
 ```
 
-## Architecture
+## Documentation
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for design decisions.
-
-## Installation
-
-```bash
-kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/main/deploy/install.yaml
-```
+- [Architecture](docs/ARCHITECTURE.md) - Design decisions and CRD schema
+- [Plugin Guide](plugin/README.md) - kubectl-marimo usage
+- [CoreWeave S3 Mounts](plugin/docs/cw-mounts.md) - S3 storage integration
 
 ## Development
 

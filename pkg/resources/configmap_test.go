@@ -9,6 +9,12 @@ import (
 	marimov1alpha1 "github.com/marimo-team/marimo-operator/api/v1alpha1"
 )
 
+const (
+	testNamespace    = "default"
+	testNotebookName = "test-notebook"
+	notebookMdFile   = "notebook.md"
+)
+
 func TestBuildConfigMap_WithContent(t *testing.T) {
 	content := `import marimo as mo
 app = mo.App()
@@ -19,8 +25,8 @@ def hello():
 `
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Content: &content,
@@ -34,16 +40,19 @@ def hello():
 	}
 
 	// Check metadata
-	if cm.Name != "test-notebook-content" {
-		t.Errorf("expected name 'test-notebook-content', got '%s'", cm.Name)
+	expectedName := testNotebookName + "-content"
+	if cm.Name != expectedName {
+		t.Errorf("expected name '%s', got '%s'", expectedName, cm.Name)
 	}
-	if cm.Namespace != "default" {
-		t.Errorf("expected namespace 'default', got '%s'", cm.Namespace)
+	if cm.Namespace != testNamespace {
+		t.Errorf("expected namespace '%s', got '%s'", testNamespace, cm.Namespace)
 	}
 
 	// Check labels
-	if cm.Labels["app.kubernetes.io/instance"] != "test-notebook" {
-		t.Errorf("expected label app.kubernetes.io/instance='test-notebook', got '%s'", cm.Labels["app.kubernetes.io/instance"])
+	if cm.Labels["app.kubernetes.io/instance"] != testNotebookName {
+		t.Errorf(
+			"expected label app.kubernetes.io/instance='%s', got '%s'",
+			testNotebookName, cm.Labels["app.kubernetes.io/instance"])
 	}
 
 	// Check data
@@ -55,8 +64,8 @@ def hello():
 func TestBuildConfigMap_WithoutContent(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Source: "https://github.com/marimo-team/marimo.git",
@@ -108,22 +117,22 @@ func TestDetectContentKey_Python(t *testing.T) {
 		{
 			name:     "import marimo",
 			content:  "import marimo as mo\n\napp = mo.App()",
-			expected: "notebook.py",
+			expected: ContentKey,
 		},
 		{
 			name:     "app.cell decorator",
 			content:  "@app.cell\ndef hello():\n    pass",
-			expected: "notebook.py",
+			expected: ContentKey,
 		},
 		{
 			name:     "marimo.App reference",
 			content:  "app = marimo.App()",
-			expected: "notebook.py",
+			expected: ContentKey,
 		},
 		{
 			name:     "unknown content defaults to py",
 			content:  "print('hello')",
-			expected: "notebook.py",
+			expected: ContentKey,
 		},
 	}
 
@@ -147,19 +156,19 @@ title: My Notebook
 This is a marimo markdown notebook.
 `
 	key := DetectContentKey(content)
-	if key != "notebook.md" {
-		t.Errorf("expected 'notebook.md', got '%s'", key)
+	if key != notebookMdFile {
+		t.Errorf("expected '%s', got '%s'", notebookMdFile, key)
 	}
 }
 
 func TestNotebookFilename(t *testing.T) {
 	pyContent := "import marimo as mo"
-	if NotebookFilename(pyContent) != "notebook.py" {
-		t.Errorf("expected 'notebook.py', got '%s'", NotebookFilename(pyContent))
+	if NotebookFilename(pyContent) != ContentKey {
+		t.Errorf("expected '%s', got '%s'", ContentKey, NotebookFilename(pyContent))
 	}
 
 	mdContent := "---\ntitle: test\n---\n# Hello"
-	if NotebookFilename(mdContent) != "notebook.md" {
-		t.Errorf("expected 'notebook.md', got '%s'", NotebookFilename(mdContent))
+	if NotebookFilename(mdContent) != notebookMdFile {
+		t.Errorf("expected '%s', got '%s'", notebookMdFile, NotebookFilename(mdContent))
 	}
 }

@@ -12,8 +12,8 @@ import (
 func TestBuildPVC_NilStorage(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Source: "https://github.com/marimo-team/marimo.git",
@@ -31,8 +31,8 @@ func TestBuildPVC_NilStorage(t *testing.T) {
 func TestBuildPVC_DefaultSize(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Source:  "https://github.com/marimo-team/marimo.git",
@@ -49,19 +49,22 @@ func TestBuildPVC_DefaultSize(t *testing.T) {
 	}
 
 	// Check metadata
-	if pvc.Name != "test-notebook" {
-		t.Errorf("expected PVC name 'test-notebook', got '%s'", pvc.Name)
+	if pvc.Name != testNotebookName {
+		t.Errorf("expected PVC name '%s', got '%s'", testNotebookName, pvc.Name)
 	}
-	if pvc.Namespace != "default" {
-		t.Errorf("expected namespace 'default', got '%s'", pvc.Namespace)
+	if pvc.Namespace != testNamespace {
+		t.Errorf("expected namespace '%s', got '%s'", testNamespace, pvc.Namespace)
 	}
 
 	// Check labels
-	if pvc.Labels["app.kubernetes.io/name"] != "marimo" {
-		t.Errorf("expected label app.kubernetes.io/name='marimo', got '%s'", pvc.Labels["app.kubernetes.io/name"])
+	if pvc.Labels["app.kubernetes.io/name"] != testMarimoContainer {
+		t.Errorf("expected label app.kubernetes.io/name='%s', got '%s'",
+			testMarimoContainer, pvc.Labels["app.kubernetes.io/name"])
 	}
-	if pvc.Labels["app.kubernetes.io/instance"] != "test-notebook" {
-		t.Errorf("expected label app.kubernetes.io/instance='test-notebook', got '%s'", pvc.Labels["app.kubernetes.io/instance"])
+	if pvc.Labels["app.kubernetes.io/instance"] != testNotebookName {
+		t.Errorf(
+			"expected label app.kubernetes.io/instance='%s', got '%s'",
+			testNotebookName, pvc.Labels["app.kubernetes.io/instance"])
 	}
 
 	// Check access mode
@@ -84,8 +87,8 @@ func TestBuildPVC_DefaultSize(t *testing.T) {
 func TestBuildPVC_CustomSize(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Source: "https://github.com/marimo-team/marimo.git",
@@ -111,8 +114,8 @@ func TestBuildPVC_CustomStorageClass(t *testing.T) {
 	storageClass := "fast-ssd"
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      "test-notebook",
-			Namespace: "default",
+			Name:      testNotebookName,
+			Namespace: testNamespace,
 		},
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Source: "https://github.com/marimo-team/marimo.git",
