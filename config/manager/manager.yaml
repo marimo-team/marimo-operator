@@ -65,6 +65,15 @@ spec:
           - --health-probe-bind-address=:8081
         image: controller:latest
         name: manager
+        env:
+          - name: DEFAULT_INIT_IMAGE
+            value: "busybox:1.36"
+          - name: GIT_IMAGE
+            value: "alpine/git:latest"
+          - name: ALPINE_IMAGE
+            value: "alpine:latest"
+          - name: S3FS_IMAGE
+            value: "ghcr.io/marimo-team/marimo-operator/s3fs:latest"
         ports: []
         securityContext:
           readOnlyRootFilesystem: true

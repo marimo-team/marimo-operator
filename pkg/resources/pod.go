@@ -11,11 +11,10 @@ import (
 	"k8s.io/apimachinery/pkg/util/strategicpatch"
 
 	marimov1alpha1 "github.com/marimo-team/marimo-operator/api/v1alpha1"
+	"github.com/marimo-team/marimo-operator/pkg/config"
 )
 
 const (
-	// DefaultInitImage is the default image for init containers.
-	DefaultInitImage = "busybox:1.36"
 	// NotebookDir is the directory where notebooks are stored.
 	NotebookDir = "/home/marimo/notebooks"
 )
@@ -71,7 +70,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		initContainers = []corev1.Container{
 			{
 				Name:  "copy-content",
-				Image: DefaultInitImage,
+				Image: config.DefaultInitImage,
 				Command: []string{"sh", "-c", fmt.Sprintf(
 					"cp /content/%s %s/%s",
 					ContentKey,
@@ -89,7 +88,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		initContainers = []corev1.Container{
 			{
 				Name:  "git-clone",
-				Image: "alpine/git:latest",
+				Image: config.GitImage,
 				Command: []string{"sh", "-c", fmt.Sprintf(
 					"if [ -d %s/.git ]; then echo 'Repository already exists, skipping clone'; else git clone --depth 1 %s %s; fi",
 					NotebookDir,
@@ -426,7 +425,7 @@ func buildSSHFSSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 
 	return &marimov1alpha1.SidecarSpec{
 		Name:    mountName,
-		Image:   "alpine:latest",
+		Image:   config.AlpineImage,
 		Command: []string{"sh", "-c"},
 		Args: []string{
 			fmt.Sprintf(
@@ -464,7 +463,7 @@ func buildRsyncSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 
 	return &marimov1alpha1.SidecarSpec{
 		Name:    mountName,
-		Image:   "alpine:latest",
+		Image:   config.AlpineImage,
 		Command: []string{"sh", "-c"},
 		Args: []string{
 			fmt.Sprintf(
@@ -518,7 +517,7 @@ func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 
 	return &marimov1alpha1.SidecarSpec{
 		Name:    mountName,
-		Image:   "ghcr.io/marimo-team/marimo-operator/s3fs:latest",
+		Image:   config.S3FSImage,
 		Command: []string{"sh", "-c"},
 		Args: []string{
 			fmt.Sprintf(
