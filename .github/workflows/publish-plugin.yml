@@ -33,3 +33,11 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: plugin/dist/
+
+      - name: Notify release result
+        if: always()
+        uses: marimo-team/internal-gh-actions/release-notification@main
+        with:
+          status: ${{ job.status }}
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL_RELEASES }}
+          artifact-url: "https://pypi.org/project/kubectl-marimo/"

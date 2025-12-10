@@ -63,3 +63,11 @@ jobs:
           push: true
           tags: ${{ steps.s3fs-meta.outputs.tags }}
           labels: ${{ steps.s3fs-meta.outputs.labels }}
+
+      - name: Notify release result
+        if: always() && startsWith(github.ref, 'refs/tags/v')
+        uses: marimo-team/internal-gh-actions/release-notification@main
+        with:
+          status: ${{ job.status }}
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL_RELEASES }}
+          artifact-url: "https://github.com/${{ github.repository }}/pkgs/container/marimo-operator"
