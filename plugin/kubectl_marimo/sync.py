@@ -1,14 +1,53 @@
 """Sync command implementation."""
 
+import subprocess
 import sys
 from pathlib import Path
 
 import click
 
-from .formats import parse_file
 from .k8s import exec_in_pod
 from .resources import compute_hash, detect_content_type
 from .swap import read_swap_file, write_swap_file
+
+
+def sync_local_mounts(
+    name: str,
+    namespace: str,
+    local_mounts: list[dict],
+) -> None:
+    """Sync mount points from pod to local.
+
+    Args:
+        name: Pod name
+        namespace: Kubernetes namespace
+        local_mounts: List of {"local": path, "remote": mount_point} dicts
+    """
+    for mount in local_mounts:
+        local_path = mount["local"]
+        remote_path = mount["remote"]
+
+        # kubectl cp from pod to local
+        cp_cmd = [
+            "kubectl",
+            "cp",
+            f"{namespace}/{name}:{remote_path}/.",
+            local_path,
+            "-c",
+            "marimo",
+        ]
+        result = subprocess.run(cp_cmd, capture_output=True, text=True)
+        if result.returncode == 0:
+            click.echo(f"Synced {remote_path} → {local_path}")
+            # Clean up .marimo swap files that may have been copied back
+            local_dir = Path(local_path)
+            if local_dir.is_dir():
+                for marimo_file in local_dir.rglob("*.marimo"):
+                    marimo_file.unlink()
+        else:
+            click.echo(
+                f"Warning: Failed to sync {remote_path}: {result.stderr}", err=True
+            )
 
 
 def sync_notebook(
@@ -29,6 +68,15 @@ def sync_notebook(
     # Use namespace from swap file if not specified
     if namespace is None:
         namespace = meta.namespace
+
+    # Sync local mounts FIRST (if present)
+    if meta.local_mounts:
+        sync_local_mounts(meta.name, namespace, meta.local_mounts)
+
+    # For directory mode, only sync local mounts (no content to sync)
+    if path.is_dir():
+        click.echo(f"Synced mounts from {namespace}/{meta.name}")
+        return
 
     # Check for local modifications
     if not force and path.exists():

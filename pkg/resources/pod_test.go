@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"strings"
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
@@ -895,5 +896,582 @@ func TestBuildSidecarContainer(t *testing.T) {
 	}
 	if len(container.VolumeMounts) != 1 || container.VolumeMounts[0].MountPath != "/data" {
 		t.Errorf("expected volume mount at /data, got %v", container.VolumeMounts)
+	}
+}
+
+func TestBuildPod_ModeDefault(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			// Mode not set, should default to "edit"
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// First arg should be "edit" (default mode)
+	if len(container.Args) == 0 {
+		t.Fatal("expected marimo args")
+	}
+	if container.Args[0] != "edit" {
+		t.Errorf("expected default mode 'edit', got '%s'", container.Args[0])
+	}
+}
+
+func TestBuildPod_ModeRun(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Mode:   "run",
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// First arg should be "run"
+	if len(container.Args) == 0 {
+		t.Fatal("expected marimo args")
+	}
+	if container.Args[0] != "run" {
+		t.Errorf("expected mode 'run', got '%s'", container.Args[0])
+	}
+}
+
+func TestBuildPod_ModeEdit(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Mode:   "edit",
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// First arg should be "edit"
+	if len(container.Args) == 0 {
+		t.Fatal("expected marimo args")
+	}
+	if container.Args[0] != "edit" {
+		t.Errorf("expected mode 'edit', got '%s'", container.Args[0])
+	}
+}
+
+func TestBuildPod_EnvVars(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Env: []corev1.EnvVar{
+				{Name: "DEBUG", Value: "true"},
+				{Name: "API_KEY", ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "my-secret",
+						},
+						Key: "api-key",
+					},
+				}},
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// Should have base env vars + user env vars
+	if len(container.Env) < 8 { // 6 base + 2 user
+		t.Fatalf("expected at least 8 env vars, got %d", len(container.Env))
+	}
+
+	// Check base env vars are present
+	foundVirtualEnv := false
+	for _, env := range container.Env {
+		if env.Name == "VIRTUAL_ENV" && env.Value == "/opt/venv" {
+			foundVirtualEnv = true
+			break
+		}
+	}
+	if !foundVirtualEnv {
+		t.Error("expected base env var VIRTUAL_ENV to be present")
+	}
+
+	// Check user env vars are appended
+	foundDebug := false
+	foundAPIKey := false
+	for _, env := range container.Env {
+		if env.Name == "DEBUG" && env.Value == "true" {
+			foundDebug = true
+		}
+		if env.Name == "API_KEY" && env.ValueFrom != nil && env.ValueFrom.SecretKeyRef != nil {
+			if env.ValueFrom.SecretKeyRef.Name == "my-secret" && env.ValueFrom.SecretKeyRef.Key == "api-key" {
+				foundAPIKey = true
+			}
+		}
+	}
+	if !foundDebug {
+		t.Error("expected user env var DEBUG=true to be present")
+	}
+	if !foundAPIKey {
+		t.Error("expected user env var API_KEY from secret to be present")
+	}
+}
+
+func TestBuildPod_EnvVarsEmpty(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			// No Env specified
+		},
+	}
+
+	pod := BuildPod(notebook)
+	container := pod.Spec.Containers[0]
+
+	// Should have exactly 6 base env vars
+	if len(container.Env) != 6 {
+		t.Errorf("expected 6 base env vars, got %d", len(container.Env))
+	}
+}
+
+func TestExpandMounts_SSHFS(t *testing.T) {
+	mounts := []string{
+		"sshfs://user@host.example.com:/data/notebooks",
+	}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	sidecar := sidecars[0]
+	if sidecar.Name != "sshfs-0" {
+		t.Errorf("expected name 'sshfs-0', got '%s'", sidecar.Name)
+	}
+	if sidecar.Image != "alpine:latest" {
+		t.Errorf("expected alpine:latest image, got '%s'", sidecar.Image)
+	}
+	if len(sidecar.Command) != 2 || sidecar.Command[0] != "sh" {
+		t.Errorf("expected command 'sh -c', got %v", sidecar.Command)
+	}
+	if len(sidecar.Args) != 1 {
+		t.Errorf("expected 1 arg, got %d", len(sidecar.Args))
+	}
+	// Check the sshfs command contains the host and path
+	arg := sidecar.Args[0]
+	if !strings.Contains(arg, "user@host.example.com") {
+		t.Errorf("expected arg to contain 'user@host.example.com', got '%s'", arg)
+	}
+	if !strings.Contains(arg, "/data/notebooks") {
+		t.Errorf("expected arg to contain '/data/notebooks', got '%s'", arg)
+	}
+}
+
+func TestExpandMounts_MultipleMounts(t *testing.T) {
+	mounts := []string{
+		"sshfs://user1@host1:/path1",
+		"sshfs://user2@host2:/path2",
+	}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 2 {
+		t.Fatalf("expected 2 sidecars, got %d", len(sidecars))
+	}
+
+	if sidecars[0].Name != "sshfs-0" {
+		t.Errorf("expected first sidecar name 'sshfs-0', got '%s'", sidecars[0].Name)
+	}
+	if sidecars[1].Name != "sshfs-1" {
+		t.Errorf("expected second sidecar name 'sshfs-1', got '%s'", sidecars[1].Name)
+	}
+}
+
+func TestExpandMounts_UnsupportedScheme(t *testing.T) {
+	mounts := []string{
+		"file:///local/path", // Not supported yet
+		"nfs://server/path",  // Not supported yet
+	}
+
+	sidecars := expandMounts(mounts)
+
+	// Should return empty - unsupported schemes are ignored
+	if len(sidecars) != 0 {
+		t.Errorf("expected 0 sidecars for unsupported schemes, got %d", len(sidecars))
+	}
+}
+
+func TestExpandMounts_Rsync(t *testing.T) {
+	mounts := []string{
+		"rsync://user@host.example.com:/data/notebooks",
+	}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	sidecar := sidecars[0]
+	if sidecar.Name != "rsync-0" {
+		t.Errorf("expected name 'rsync-0', got '%s'", sidecar.Name)
+	}
+	if sidecar.Image != "alpine:latest" {
+		t.Errorf("expected alpine:latest image, got '%s'", sidecar.Image)
+	}
+	if len(sidecar.Command) != 2 || sidecar.Command[0] != "sh" {
+		t.Errorf("expected command 'sh -c', got %v", sidecar.Command)
+	}
+	if len(sidecar.Args) != 1 {
+		t.Errorf("expected 1 arg, got %d", len(sidecar.Args))
+	}
+	// Check the rsync command contains the host and path
+	arg := sidecar.Args[0]
+	if !strings.Contains(arg, "rsync") {
+		t.Errorf("expected arg to contain 'rsync', got '%s'", arg)
+	}
+	if !strings.Contains(arg, "user@host.example.com") {
+		t.Errorf("expected arg to contain 'user@host.example.com', got '%s'", arg)
+	}
+	if !strings.Contains(arg, "/data/notebooks") {
+		t.Errorf("expected arg to contain '/data/notebooks', got '%s'", arg)
+	}
+}
+
+func TestExpandMounts_MixedSchemes(t *testing.T) {
+	mounts := []string{
+		"sshfs://user1@host1:/path1",
+		"rsync://user2@host2:/path2",
+	}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 2 {
+		t.Fatalf("expected 2 sidecars, got %d", len(sidecars))
+	}
+
+	if sidecars[0].Name != "sshfs-0" {
+		t.Errorf("expected first sidecar name 'sshfs-0', got '%s'", sidecars[0].Name)
+	}
+	if sidecars[1].Name != "rsync-1" {
+		t.Errorf("expected second sidecar name 'rsync-1', got '%s'", sidecars[1].Name)
+	}
+}
+
+func TestBuildPod_WithMounts(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+			Mounts: []string{
+				"sshfs://user@host:/remote/data",
+			},
+			Storage: &marimov1alpha1.StorageSpec{
+				Size: "1Gi",
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Should have marimo + 1 sshfs sidecar
+	if len(pod.Spec.Containers) != 2 {
+		t.Fatalf("expected 2 containers, got %d", len(pod.Spec.Containers))
+	}
+
+	// First container should be marimo
+	if pod.Spec.Containers[0].Name != "marimo" {
+		t.Errorf("expected first container to be 'marimo', got '%s'", pod.Spec.Containers[0].Name)
+	}
+
+	// Second container should be sshfs sidecar
+	sshfsSidecar := pod.Spec.Containers[1]
+	if sshfsSidecar.Name != "sshfs-0" {
+		t.Errorf("expected sidecar name 'sshfs-0', got '%s'", sshfsSidecar.Name)
+	}
+}
+
+func TestParseRemoteMountURI_Basic(t *testing.T) {
+	tests := []struct {
+		name           string
+		uri            string
+		scheme         string
+		wantUserHost   string
+		wantSourcePath string
+		wantMountPoint string
+	}{
+		{
+			name:           "rsync basic",
+			uri:            "rsync://user@host:/remote/path",
+			scheme:         "rsync",
+			wantUserHost:   "user@host",
+			wantSourcePath: "/remote/path",
+			wantMountPoint: "",
+		},
+		{
+			name:           "rsync with custom mount",
+			uri:            "rsync://user@host:/data:/mnt/custom",
+			scheme:         "rsync",
+			wantUserHost:   "user@host",
+			wantSourcePath: "/data",
+			wantMountPoint: "/mnt/custom",
+		},
+		{
+			name:           "sshfs basic",
+			uri:            "sshfs://admin@server:/files",
+			scheme:         "sshfs",
+			wantUserHost:   "admin@server",
+			wantSourcePath: "/files",
+			wantMountPoint: "",
+		},
+		{
+			name:           "sshfs with custom mount",
+			uri:            "sshfs://admin@server:/files:/home/marimo/data",
+			scheme:         "sshfs",
+			wantUserHost:   "admin@server",
+			wantSourcePath: "/files",
+			wantMountPoint: "/home/marimo/data",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			userHost, sourcePath, mountPoint := parseRemoteMountURI(tt.uri, tt.scheme)
+			if userHost != tt.wantUserHost {
+				t.Errorf("parseRemoteMountURI() userHost = %q, want %q", userHost, tt.wantUserHost)
+			}
+			if sourcePath != tt.wantSourcePath {
+				t.Errorf("parseRemoteMountURI() sourcePath = %q, want %q", sourcePath, tt.wantSourcePath)
+			}
+			if mountPoint != tt.wantMountPoint {
+				t.Errorf("parseRemoteMountURI() mountPoint = %q, want %q", mountPoint, tt.wantMountPoint)
+			}
+		})
+	}
+}
+
+func TestExpandMounts_CustomMountPoint(t *testing.T) {
+	// Test rsync with custom mount point
+	mounts := []string{
+		"rsync://user@host:/data:/mnt/custom",
+	}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	// Check that the sidecar command contains the custom mount point
+	args := sidecars[0].Args
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(args))
+	}
+
+	if !strings.Contains(args[0], "/mnt/custom") {
+		t.Errorf("expected args to contain '/mnt/custom', got %s", args[0])
+	}
+}
+
+func TestExpandMounts_SSHFSCustomMountPoint(t *testing.T) {
+	// Test sshfs with custom mount point
+	mounts := []string{
+		"sshfs://user@host:/data:/opt/data",
+	}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	// Check that the sidecar command contains the custom mount point
+	args := sidecars[0].Args
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(args))
+	}
+
+	if !strings.Contains(args[0], "/opt/data") {
+		t.Errorf("expected args to contain '/opt/data', got %s", args[0])
+	}
+}
+
+func TestParseCWMountURI(t *testing.T) {
+	tests := []struct {
+		uri        string
+		bucket     string
+		subpath    string
+		mountPoint string
+	}{
+		{"cw://mybucket", "mybucket", "", ""},
+		{"cw://mybucket/data", "mybucket", "data", ""},
+		{"cw://mybucket/data/subdir", "mybucket", "data/subdir", ""},
+		{"cw://mybucket/data:/mnt/s3", "mybucket", "data", "/mnt/s3"},
+		{"cw://bucket:/custom", "bucket", "", "/custom"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.uri, func(t *testing.T) {
+			bucket, subpath, mount := parseCWMountURI(tc.uri)
+			if bucket != tc.bucket {
+				t.Errorf("bucket: expected %q, got %q", tc.bucket, bucket)
+			}
+			if subpath != tc.subpath {
+				t.Errorf("subpath: expected %q, got %q", tc.subpath, subpath)
+			}
+			if mount != tc.mountPoint {
+				t.Errorf("mountPoint: expected %q, got %q", tc.mountPoint, mount)
+			}
+		})
+	}
+}
+
+func TestExpandMounts_CW(t *testing.T) {
+	mounts := []string{"cw://mybucket/data"}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	sidecar := sidecars[0]
+	if sidecar.Name != "cw-0" {
+		t.Errorf("expected name 'cw-0', got %q", sidecar.Name)
+	}
+
+	if !strings.Contains(sidecar.Image, "s3fs") {
+		t.Errorf("expected image to contain 's3fs', got %q", sidecar.Image)
+	}
+
+	if len(sidecar.Args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(sidecar.Args))
+	}
+
+	// Check that the command contains the bucket path
+	if !strings.Contains(sidecar.Args[0], "mybucket:/data") {
+		t.Errorf("expected args to contain 'mybucket:/data', got %s", sidecar.Args[0])
+	}
+
+	// Check that it uses the LOTA endpoint by default
+	if !strings.Contains(sidecar.Args[0], "cwlota.com") {
+		t.Errorf("expected args to contain 'cwlota.com', got %s", sidecar.Args[0])
+	}
+}
+
+func TestExpandMounts_CWCustomMountPoint(t *testing.T) {
+	mounts := []string{"cw://mybucket/data:/mnt/s3"}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	args := sidecars[0].Args
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(args))
+	}
+
+	if !strings.Contains(args[0], "/mnt/s3") {
+		t.Errorf("expected args to contain '/mnt/s3', got %s", args[0])
+	}
+}
+
+func TestExpandMounts_CWBucketOnly(t *testing.T) {
+	mounts := []string{"cw://mybucket"}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	args := sidecars[0].Args
+	if len(args) != 1 {
+		t.Fatalf("expected 1 arg, got %d", len(args))
+	}
+
+	// Should mount just the bucket (no :/ path)
+	if !strings.Contains(args[0], "s3fs mybucket /home/marimo") {
+		t.Errorf("expected args to contain 's3fs mybucket /home/marimo', got %s", args[0])
+	}
+}
+
+func TestExpandMounts_CWSecretReference(t *testing.T) {
+	mounts := []string{"cw://mybucket/data"}
+
+	sidecars := expandMounts(mounts)
+
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
+	}
+
+	sidecar := sidecars[0]
+
+	// Should have 2 env vars referencing the cw-credentials secret
+	if len(sidecar.Env) != 2 {
+		t.Fatalf("expected 2 env vars, got %d", len(sidecar.Env))
+	}
+
+	// Check AWS_ACCESS_KEY_ID
+	accessKeyEnv := sidecar.Env[0]
+	if accessKeyEnv.Name != "AWS_ACCESS_KEY_ID" {
+		t.Errorf("expected first env var to be AWS_ACCESS_KEY_ID, got %s", accessKeyEnv.Name)
+	}
+	if accessKeyEnv.ValueFrom == nil || accessKeyEnv.ValueFrom.SecretKeyRef == nil {
+		t.Fatal("expected AWS_ACCESS_KEY_ID to have secretKeyRef")
+	}
+	if accessKeyEnv.ValueFrom.SecretKeyRef.Name != CWCredentialsSecret {
+		t.Errorf("expected secret name %q, got %q", CWCredentialsSecret, accessKeyEnv.ValueFrom.SecretKeyRef.Name)
+	}
+
+	// Check AWS_SECRET_ACCESS_KEY
+	secretKeyEnv := sidecar.Env[1]
+	if secretKeyEnv.Name != "AWS_SECRET_ACCESS_KEY" {
+		t.Errorf("expected second env var to be AWS_SECRET_ACCESS_KEY, got %s", secretKeyEnv.Name)
+	}
+	if secretKeyEnv.ValueFrom == nil || secretKeyEnv.ValueFrom.SecretKeyRef == nil {
+		t.Fatal("expected AWS_SECRET_ACCESS_KEY to have secretKeyRef")
+	}
+	if secretKeyEnv.ValueFrom.SecretKeyRef.Name != CWCredentialsSecret {
+		t.Errorf("expected secret name %q, got %q", CWCredentialsSecret, secretKeyEnv.ValueFrom.SecretKeyRef.Name)
 	}
 }

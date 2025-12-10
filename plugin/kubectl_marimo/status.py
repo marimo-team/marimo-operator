@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from .swap import read_swap_file, SwapMeta
+from .swap import SwapMeta
 
 
 def show_status(directory: str = ".") -> None:

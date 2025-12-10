@@ -10,11 +10,13 @@ from typing import Optional
 @dataclass
 class SwapMeta:
     """Metadata about an active deployment."""
+
     name: str
     namespace: str
     applied_at: str
     original_file: str
     file_hash: str
+    local_mounts: list[dict] | None = None  # [{"local": "/path", "remote": "/mount"}]
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -27,12 +29,16 @@ class SwapMeta:
             applied_at=data["applied_at"],
             original_file=data["original_file"],
             file_hash=data["file_hash"],
+            local_mounts=data.get("local_mounts"),
         )
 
 
 def swap_file_path(file_path: str) -> Path:
-    """Get the swap file path for a notebook file."""
+    """Get the swap file path for a notebook file or directory."""
     path = Path(file_path)
+    # For directories, use .directory.marimo inside the directory
+    if path.is_dir():
+        return path / ".directory.marimo"
     return path.parent / f".{path.name}.marimo"
 
 
@@ -70,6 +76,7 @@ def create_swap_meta(
     namespace: str,
     original_file: str,
     file_hash: str,
+    local_mounts: list[dict] | None = None,
 ) -> SwapMeta:
     """Create new swap metadata."""
     return SwapMeta(
@@ -78,4 +85,5 @@ def create_swap_meta(
         applied_at=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
         original_file=str(Path(original_file).resolve()),
         file_hash=file_hash,
+        local_mounts=local_mounts,
     )

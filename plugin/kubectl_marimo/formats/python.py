@@ -31,7 +31,7 @@ def extract_pep723_metadata(content: str) -> dict[str, Any] | None:
     # storage = "5Gi"
     """
     # Look for PEP 723 script block
-    pattern = r'# /// script\n((?:# .*\n)*?)# ///'
+    pattern = r"# /// script\n((?:# .*\n)*?)# ///"
     match = re.search(pattern, content)
 
     if not match:
@@ -58,20 +58,84 @@ def extract_pep723_metadata(content: str) -> dict[str, Any] | None:
             metadata[key] = value
 
     # Look for marimo k8s config
-    k8s_pattern = r'# \[tool\.marimo\.k8s\]\n((?:# .*\n)*)'
+    k8s_pattern = r"# \[tool\.marimo\.k8s\]\n((?:# .*\n)*)"
     k8s_match = re.search(k8s_pattern, content)
     if k8s_match:
         for line in k8s_match.group(1).split("\n"):
             line = line.lstrip("# ").strip()
+            if line.startswith("["):
+                # Stop at next section
+                break
             if "=" in line:
                 key, _, value = line.partition("=")
                 key = key.strip()
                 value = value.strip()
-                if value.startswith('"') and value.endswith('"'):
-                    value = value[1:-1]
+                value = _parse_toml_value(value)
                 metadata[key] = value
 
+    # Look for marimo k8s env config
+    env_pattern = r"# \[tool\.marimo\.k8s\.env\]\n((?:# .*\n)*)"
+    env_match = re.search(env_pattern, content)
+    if env_match:
+        env = {}
+        for line in env_match.group(1).split("\n"):
+            line = line.lstrip("# ").strip()
+            if line.startswith("["):
+                # Stop at next section
+                break
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                value = _parse_toml_value(value)
+                env[key] = value
+        if env:
+            metadata["env"] = env
+
     return metadata if metadata else None
+
+
+def _parse_toml_value(value: str) -> Any:
+    """Parse a TOML-like value (string, list, etc.)."""
+    value = value.strip()
+
+    # String with double quotes
+    if value.startswith('"') and value.endswith('"'):
+        return value[1:-1]
+
+    # String with single quotes
+    if value.startswith("'") and value.endswith("'"):
+        return value[1:-1]
+
+    # List
+    if value.startswith("[") and value.endswith("]"):
+        # Simple list parsing - handles ["a", "b", "c"]
+        inner = value[1:-1].strip()
+        if not inner:
+            return []
+        items = []
+        for item in inner.split(","):
+            item = item.strip()
+            if item.startswith('"') and item.endswith('"'):
+                items.append(item[1:-1])
+            elif item.startswith("'") and item.endswith("'"):
+                items.append(item[1:-1])
+            else:
+                items.append(item)
+        return items
+
+    # Number
+    if value.isdigit():
+        return int(value)
+
+    # Boolean
+    if value.lower() == "true":
+        return True
+    if value.lower() == "false":
+        return False
+
+    # Default: return as string
+    return value
 
 
 def is_marimo_python(content: str) -> bool:
