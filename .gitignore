@@ -32,3 +32,6 @@ __pycache__/*
 
 # Kubeconfig might contain secrets
 *.kubeconfig
+
+# Plugin swap files
+.*.marimo
