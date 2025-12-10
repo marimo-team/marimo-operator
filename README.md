@@ -18,7 +18,10 @@ A Kubernetes operator for deploying [marimo](https://marimo.io) notebooks.
 ## Installation
 
 ```bash
-# Install CRD and operator
+# Option 1: Install from single manifest
+kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/main/deploy/install.yaml
+
+# Option 2: Install via kustomize
 kubectl apply -k https://github.com/marimo-team/marimo-operator/config/default
 
 # Verify installation
