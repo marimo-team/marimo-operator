@@ -139,6 +139,8 @@ type MarimoNotebookSpec struct {
 	// PodOverrides allows customizing the pod spec via strategic merge patch
 	// Use this for advanced configuration like nodeSelector, tolerations, etc.
 	// +optional
+	// +kubebuilder:validation:Schemaless
+	// +kubebuilder:pruning:PreserveUnknownFields
 	PodOverrides *corev1.PodSpec `json:"podOverrides,omitempty"`
 }
 
