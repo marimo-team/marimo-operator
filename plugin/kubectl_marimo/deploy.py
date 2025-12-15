@@ -215,10 +215,14 @@ def setup_local_sshfs_mount(
     Returns:
         Port-forward process, or None if setup failed
     """
+    # Check sshfs is installed
+    result = subprocess.run(["which", "sshfs"], capture_output=True)
+    sshfs_available = result.returncode == 0
+
     # Find available local port for SSH
     local_ssh_port = find_available_port(ssh_port)
 
-    # Start port-forward in background
+    # Always start port-forward for SSH access (even without sshfs)
     pf_proc = subprocess.Popen(
         [
             "kubectl",
@@ -234,6 +238,12 @@ def setup_local_sshfs_mount(
 
     # Wait for port-forward to be ready
     time.sleep(2)
+
+    if not sshfs_available:
+        click.echo("sshfs not installed - skipping local mount.", err=True)
+        click.echo("You can SSH directly to access files:", err=True)
+        click.echo(f"  ssh -p {local_ssh_port} marimo@localhost", err=True)
+        return pf_proc  # Return port-forward process so it stays alive
 
     # Create local mount directory
     local_mount_path = Path(local_mount).expanduser().resolve()
