@@ -207,12 +207,28 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	// Check if any sidecar uses FUSE (privileged) - if so, marimo container needs
 	// HostToContainer propagation
 	hasFUSESidecar := false
+	hasSSHFSSidecar := false
 	for _, sidecar := range allSidecars {
 		if sidecar.SecurityContext != nil && sidecar.SecurityContext.Privileged != nil &&
 			*sidecar.SecurityContext.Privileged {
 			hasFUSESidecar = true
-			break
 		}
+		if strings.HasPrefix(sidecar.Name, "sshfs-") {
+			hasSSHFSSidecar = true
+		}
+	}
+
+	// Add ssh-pubkey secret volume if any sshfs sidecar exists
+	// The plugin creates this secret from the user's public key
+	if hasSSHFSSidecar {
+		volumes = append(volumes, corev1.Volume{
+			Name: "ssh-pubkey",
+			VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{
+					SecretName: "ssh-pubkey",
+				},
+			},
+		})
 	}
 
 	// If there are FUSE sidecars, update marimo's volume mount with HostToContainer propagation
@@ -280,6 +296,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 // buildSidecarContainer creates a container spec from a SidecarSpec.
 // Sidecars share the PVC volume with the main marimo container.
 // FUSE-based sidecars (with privileged security context) get Bidirectional mount propagation.
+// SSHFS sidecars (name starts with "sshfs-") get the ssh-pubkey secret mounted.
 func buildSidecarContainer(sidecar marimov1alpha1.SidecarSpec, volumeMounts []corev1.VolumeMount) corev1.Container {
 	// Copy volume mounts so we can modify them for this container
 	sidecarMounts := make([]corev1.VolumeMount, len(volumeMounts))
@@ -294,6 +311,16 @@ func buildSidecarContainer(sidecar marimov1alpha1.SidecarSpec, volumeMounts []co
 				sidecarMounts[i].MountPropagation = &bidirectional
 			}
 		}
+	}
+
+	// SSHFS sidecars need the ssh-pubkey secret for key-based auth
+	// The linuxserver/openssh-server image reads PUBLIC_KEY_FILE from this path
+	if strings.HasPrefix(sidecar.Name, "sshfs-") {
+		sidecarMounts = append(sidecarMounts, corev1.VolumeMount{
+			Name:      "ssh-pubkey",
+			MountPath: "/config/ssh-pubkey",
+			ReadOnly:  true,
+		})
 	}
 
 	container := corev1.Container{
@@ -369,36 +396,6 @@ func applyPodOverrides(base, overrides corev1.PodSpec) corev1.PodSpec {
 	return result
 }
 
-// parseRemoteMountURI parses a remote mount URI with optional custom mount point.
-// Format: scheme://user@host:/source or scheme://user@host:/source:/mount
-// Returns: (userHost, sourcePath, mountPoint)
-// If no custom mount point specified, mountPoint is empty.
-func parseRemoteMountURI(uri, scheme string) (userHost, sourcePath, mountPoint string) {
-	trimmed := strings.TrimPrefix(uri, scheme+"://")
-
-	// Split at first : that follows a / to get user@host
-	colonIdx := strings.Index(trimmed, ":/")
-	if colonIdx == -1 {
-		return "", "", ""
-	}
-
-	userHost = trimmed[:colonIdx]
-	pathPart := trimmed[colonIdx+1:] // includes leading /
-
-	// Check for custom mount point (another : followed by /)
-	// /data:/mnt → source=/data, mount=/mnt
-	lastColonIdx := strings.LastIndex(pathPart, ":/")
-	if lastColonIdx > 0 {
-		sourcePath = pathPart[:lastColonIdx]
-		mountPoint = pathPart[lastColonIdx+1:]
-	} else {
-		sourcePath = pathPart
-		mountPoint = ""
-	}
-
-	return userHost, sourcePath, mountPoint
-}
-
 // parseCWMountURI parses a cw:// URI for CoreWeave S3 mounts.
 // Format: cw://bucket[/path][:mount_point]
 // Returns: (bucket, subpath, mountPoint)
@@ -424,124 +421,24 @@ func parseCWMountURI(uri string) (bucket, subpath, mountPoint string) {
 
 // expandMounts converts mount URIs to sidecar specs.
 // Supported schemes:
-// - sshfs://user@host:/remote/path → SSHFS sidecar (requires FUSE)
-// - sshfs://user@host:/remote/path:/mount → SSHFS with custom mount point
-// - rsync://user@host:/remote/path → rsync sidecar (no FUSE, periodic sync)
-// - rsync://user@host:/remote/path:/mount → rsync with custom mount point
 // - cw://bucket/path → CoreWeave S3 sidecar using s3fs
 // - cw://bucket/path:/mount → CoreWeave S3 with custom mount point
+//
+// Note: sshfs:// and rsync:// mounts are handled by the kubectl-marimo plugin,
+// not the operator. The plugin adds explicit sidecar specs to the CRD.
 func expandMounts(mounts []string) []marimov1alpha1.SidecarSpec {
 	var sidecars []marimov1alpha1.SidecarSpec
 
 	for i, mount := range mounts {
-		if strings.HasPrefix(mount, "sshfs://") {
-			if sidecar := buildSSHFSSidecar(mount, i); sidecar != nil {
-				sidecars = append(sidecars, *sidecar)
-			}
-		} else if strings.HasPrefix(mount, "rsync://") {
-			if sidecar := buildRsyncSidecar(mount, i); sidecar != nil {
-				sidecars = append(sidecars, *sidecar)
-			}
-		} else if strings.HasPrefix(mount, "cw://") {
+		if strings.HasPrefix(mount, "cw://") {
 			if sidecar := buildCWSidecar(mount, i); sidecar != nil {
 				sidecars = append(sidecars, *sidecar)
 			}
 		}
+		// sshfs:// and rsync:// are handled by plugin - ignore here
 	}
 
 	return sidecars
-}
-
-// buildSSHFSSidecar creates a sidecar spec for SSHFS mount.
-// URI format: sshfs://user@host:/remote/path or sshfs://user@host:/remote/path:/mount
-// The sidecar mounts the remote path to the specified mount point or default location.
-func buildSSHFSSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
-	userHost, remotePath, customMount := parseRemoteMountURI(uri, "sshfs")
-	if userHost == "" || remotePath == "" {
-		return nil
-	}
-
-	// Generate a unique name for the mount
-	mountName := fmt.Sprintf("sshfs-%d", index)
-
-	// Use custom mount point or default to /home/marimo/notebooks/mounts/<name>
-	localMountPoint := customMount
-	if localMountPoint == "" {
-		localMountPoint = fmt.Sprintf("%s/mounts/%s", NotebookDir, mountName)
-	}
-
-	return &marimov1alpha1.SidecarSpec{
-		Name:    mountName,
-		Image:   config.AlpineImage,
-		Command: []string{"sh", "-c"},
-		Args: []string{
-			fmt.Sprintf(
-				"apk add --no-cache sshfs openssh-client && mkdir -p %s && "+
-					"sshfs -o StrictHostKeyChecking=no,UserKnownHostsFile=/dev/null,"+
-					"reconnect,ServerAliveInterval=15,allow_other %s:%s %s && sleep infinity",
-				localMountPoint,
-				userHost,
-				remotePath,
-				localMountPoint,
-			),
-		},
-		Env: []corev1.EnvVar{
-			// SSH key should be mounted from a secret named "ssh-credentials"
-			// The user can configure this via podOverrides if needed
-		},
-		// FUSE requires privileged access to /dev/fuse
-		SecurityContext: &corev1.SecurityContext{
-			Privileged: ptrBool(true),
-		},
-	}
-}
-
-// buildRsyncSidecar creates a sidecar spec for rsync-based file sync.
-// URI format: rsync://user@host:/remote/path or rsync://user@host:/remote/path:/mount
-// No FUSE required - works unprivileged.
-// Behavior: initial sync from remote, then watches local changes and syncs back.
-func buildRsyncSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
-	userHost, remotePath, customMount := parseRemoteMountURI(uri, "rsync")
-	if userHost == "" || remotePath == "" {
-		return nil
-	}
-
-	mountName := fmt.Sprintf("rsync-%d", index)
-
-	// Use custom mount point or default to /home/marimo/notebooks/mounts/<name>
-	localMountPoint := customMount
-	if localMountPoint == "" {
-		localMountPoint = fmt.Sprintf("%s/mounts/%s", NotebookDir, mountName)
-	}
-
-	return &marimov1alpha1.SidecarSpec{
-		Name:    mountName,
-		Image:   config.AlpineImage,
-		Command: []string{"sh", "-c"},
-		Args: []string{
-			fmt.Sprintf(
-				"apk add --no-cache openssh-client rsync inotify-tools && "+
-					"mkdir -p %s && "+
-					"echo 'Initial sync from %s:%s' && "+
-					"rsync -avz -e 'ssh -o StrictHostKeyChecking=no "+
-					"-o UserKnownHostsFile=/dev/null' %s:%s/ %s/ || "+
-					"echo 'Initial sync failed (check SSH credentials)' && "+
-					"echo 'Watching for changes...' && "+
-					"while inotifywait -r -e modify,create,delete %s 2>/dev/null; do "+
-					"rsync -avz -e 'ssh -o StrictHostKeyChecking=no "+
-					"-o UserKnownHostsFile=/dev/null' %s/ %s:%s/; "+
-					"done",
-				localMountPoint,
-				userHost, remotePath,
-				userHost, remotePath, localMountPoint,
-				localMountPoint,
-				localMountPoint, userHost, remotePath,
-			),
-		},
-		Env: []corev1.EnvVar{
-			// SSH key should be mounted from a secret named "ssh-credentials"
-		},
-	}
 }
 
 // CWCredentialsSecret is the name of the K8s secret containing S3 credentials.

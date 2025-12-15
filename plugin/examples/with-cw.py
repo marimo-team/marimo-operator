@@ -47,7 +47,12 @@ def read_test_file():
         print(f"File contents: {content}")
     else:
         print(f"Test file not found at {test_file}")
-        print("Available mounts:", os.listdir("/home/marimo/notebooks/mounts") if os.path.exists("/home/marimo/notebooks/mounts") else "none")
+        print(
+            "Available mounts:",
+            os.listdir("/home/marimo/notebooks/mounts")
+            if os.path.exists("/home/marimo/notebooks/mounts")
+            else "none",
+        )
     return
 
 
