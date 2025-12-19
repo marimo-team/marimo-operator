@@ -1,0 +1,73 @@
+# SSH Sidecar Example
+# This deploys a marimo notebook with an SSH sidecar for local filesystem access.
+# Use this to mount the pod's filesystem locally via sshfs for bidirectional editing.
+#
+# Prerequisites:
+# 1. Create the ssh-pubkey secret with your public key:
+#    kubectl create secret generic ssh-pubkey \
+#      --from-file=authorized_keys=~/.ssh/id_ed25519.pub
+#
+# 2. Deploy this notebook:
+#    kubectl apply -f notebook.yaml
+#
+# 3. Port-forward and mount locally:
+#    kubectl port-forward svc/ssh-notebook 2222:2222 &
+#    mkdir -p ./notebooks
+#    sshfs marimo@localhost:/home/marimo/notebooks ./notebooks -p 2222
+#
+# Or simply use the kubectl-marimo plugin which handles this automatically:
+#    kubectl marimo deploy notebook.py --source sshfs:///home/marimo/notebooks
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: ssh-notebook
+  namespace: default
+spec:
+  # Persistent storage for notebooks
+  storage:
+    size: "2Gi"
+
+  # Disable auth for local development
+  auth: {}
+
+  # SSH sidecar for local filesystem access
+  sidecars:
+    - name: sshfs
+      image: lscr.io/linuxserver/openssh-server:latest
+      # Expose SSH port via the service
+      exposePort: 2222
+      env:
+        # Disable password auth - key-based only
+        - name: PASSWORD_ACCESS
+          value: "false"
+        # Username for SSH connections
+        - name: USER_NAME
+          value: "marimo"
+        # User ID to match marimo container
+        - name: PUID
+          value: "1000"
+        - name: PGID
+          value: "1000"
+        # Path to authorized_keys from secret
+        - name: PUBLIC_KEY_FILE
+          value: "/config/ssh-pubkey/authorized_keys"
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+      # Mount the ssh-pubkey secret
+      volumeMounts:
+        - name: ssh-pubkey
+          mountPath: /config/ssh-pubkey
+          readOnly: true
+
+  # Pod overrides to add the secret volume
+  podOverrides:
+    volumes:
+      - name: ssh-pubkey
+        secret:
+          secretName: ssh-pubkey
+          defaultMode: 0600
