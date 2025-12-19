@@ -3,7 +3,7 @@
 # ///
 # [tool.marimo.k8s]
 # storage = "1Gi"
-# mounts = ["sshfs://user@host:/data"]
+# mounts = ["sshfs://data"]
 
 import marimo
 

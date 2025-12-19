@@ -106,7 +106,7 @@ kubectl marimo delete [OPTIONS] FILE
 
 Options:
 - `-n, --namespace` - Kubernetes namespace
-- `--keep-pvc` - Preserve persistent storage
+- `--delete-pvc` - Also delete PersistentVolumeClaim (PVC is preserved by default)
 - `--no-sync` - Delete without syncing changes back
 
 ### status

@@ -1,55 +1,73 @@
 # SSH Sidecar Example
-# This deploys a marimo notebook with an SSH server sidecar
-# allowing direct file access via SFTP/SCP
+# This deploys a marimo notebook with an SSH sidecar for local filesystem access.
+# Use this to mount the pod's filesystem locally via sshfs for bidirectional editing.
+#
+# Prerequisites:
+# 1. Create the ssh-pubkey secret with your public key:
+#    kubectl create secret generic ssh-pubkey \
+#      --from-file=authorized_keys=~/.ssh/id_ed25519.pub
+#
+# 2. Deploy this notebook:
+#    kubectl apply -f notebook.yaml
+#
+# 3. Port-forward and mount locally:
+#    kubectl port-forward svc/ssh-notebook 2222:2222 &
+#    mkdir -p ./notebooks
+#    sshfs marimo@localhost:/home/marimo/notebooks ./notebooks -p 2222
+#
+# Or simply use the kubectl-marimo plugin which handles this automatically:
+#    kubectl marimo deploy notebook.py --source sshfs:///home/marimo/notebooks
 apiVersion: marimo.io/v1alpha1
 kind: MarimoNotebook
 metadata:
   name: ssh-notebook
   namespace: default
 spec:
-  source: "https://github.com/marimo-team/examples.git"
-
-  # Persistent storage (required for sidecars)
+  # Persistent storage for notebooks
   storage:
-    size: "5Gi"
+    size: "2Gi"
 
-  # Disable auth for examples (empty auth block = --no-token)
+  # Disable auth for local development
   auth: {}
 
-  # SSH sidecar for remote file access
+  # SSH sidecar for local filesystem access
   sidecars:
-    - name: sshd
-      image: linuxserver/openssh-server:latest
+    - name: sshfs
+      image: lscr.io/linuxserver/openssh-server:latest
+      # Expose SSH port via the service
       exposePort: 2222
       env:
-        # Enable password authentication
+        # Disable password auth - key-based only
         - name: PASSWORD_ACCESS
-          value: "true"
-        # Set a default user password (for demo only - use secrets in production!)
-        - name: USER_PASSWORD
-          value: "marimo"
-        # User to create
+          value: "false"
+        # Username for SSH connections
         - name: USER_NAME
           value: "marimo"
-        # Map to correct UID for file ownership
+        # User ID to match marimo container
         - name: PUID
           value: "1000"
         - name: PGID
           value: "1000"
----
-# For production, use a Secret for the SSH password:
-# apiVersion: v1
-# kind: Secret
-# metadata:
-#   name: ssh-credentials
-# type: Opaque
-# stringData:
-#   password: "your-secure-password"
-#
-# Then reference it in the sidecar env:
-# env:
-#   - name: USER_PASSWORD
-#     valueFrom:
-#       secretKeyRef:
-#         name: ssh-credentials
-#         key: password
+        # Path to authorized_keys from secret
+        - name: PUBLIC_KEY_FILE
+          value: "/config/ssh-pubkey/authorized_keys"
+      resources:
+        requests:
+          cpu: "50m"
+          memory: "64Mi"
+        limits:
+          cpu: "200m"
+          memory: "256Mi"
+      # Mount the ssh-pubkey secret
+      volumeMounts:
+        - name: ssh-pubkey
+          mountPath: /config/ssh-pubkey
+          readOnly: true
+
+  # Pod overrides to add the secret volume
+  podOverrides:
+    volumes:
+      - name: ssh-pubkey
+        secret:
+          secretName: ssh-pubkey
+          defaultMode: 0600

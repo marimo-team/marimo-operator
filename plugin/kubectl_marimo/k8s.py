@@ -100,6 +100,39 @@ def get_pod_logs(pod_name: str, namespace: str) -> tuple[bool, str]:
         return False, "kubectl not found in PATH"
 
 
+def patch_resource(
+    kind: str,
+    name: str,
+    namespace: str,
+    patch: str,
+) -> bool:
+    """Patch a Kubernetes resource using kubectl.
+
+    Returns True on success, False on failure.
+    """
+    cmd = [
+        "kubectl",
+        "patch",
+        kind,
+        name,
+        "-n",
+        namespace,
+        "--type=merge",
+        "-p",
+        patch,
+    ]
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"Error: {result.stderr}", file=sys.stderr)
+            return False
+        print(result.stdout, end="")
+        return True
+    except FileNotFoundError:
+        print("Error: kubectl not found in PATH", file=sys.stderr)
+        return False
+
+
 def get_resource(
     kind: str,
     name: str,

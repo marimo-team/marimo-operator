@@ -16,6 +16,8 @@ const (
 	testSetupVenv       = "setup-venv"
 	testSSHDContainer   = "sshd"
 	testSSHFSName       = "sshfs-0"
+	testCWSidecarName   = "cw-0"
+	testSSHPubkeyName   = "ssh-pubkey"
 )
 
 func TestBuildPod_BasicConfig(t *testing.T) {
@@ -1067,58 +1069,17 @@ func TestBuildPod_EnvVarsEmpty(t *testing.T) {
 	}
 }
 
-func TestExpandMounts_SSHFS(t *testing.T) {
+func TestExpandMounts_SSHFSIgnored(t *testing.T) {
+	// sshfs:// mounts are handled by the plugin, not the operator
 	mounts := []string{
-		"sshfs://user@host.example.com:/data/notebooks",
+		"sshfs:///home/marimo/notebooks",
 	}
 
 	sidecars := expandMounts(mounts)
 
-	if len(sidecars) != 1 {
-		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
-	}
-
-	sidecar := sidecars[0]
-	if sidecar.Name != testSSHFSName {
-		t.Errorf("expected name '%s', got '%s'", testSSHFSName, sidecar.Name)
-	}
-	if sidecar.Image != "alpine:latest" {
-		t.Errorf("expected alpine:latest image, got '%s'", sidecar.Image)
-	}
-	if len(sidecar.Command) != 2 || sidecar.Command[0] != "sh" {
-		t.Errorf("expected command 'sh -c', got %v", sidecar.Command)
-	}
-	if len(sidecar.Args) != 1 {
-		t.Errorf("expected 1 arg, got %d", len(sidecar.Args))
-	}
-	// Check the sshfs command contains the host and path
-	arg := sidecar.Args[0]
-	if !strings.Contains(arg, "user@host.example.com") {
-		t.Errorf("expected arg to contain 'user@host.example.com', got '%s'", arg)
-	}
-	if !strings.Contains(arg, "/data/notebooks") {
-		t.Errorf("expected arg to contain '/data/notebooks', got '%s'", arg)
-	}
-}
-
-func TestExpandMounts_MultipleMounts(t *testing.T) {
-	mounts := []string{
-		"sshfs://user1@host1:/path1",
-		"sshfs://user2@host2:/path2",
-	}
-
-	sidecars := expandMounts(mounts)
-
-	if len(sidecars) != 2 {
-		t.Fatalf("expected 2 sidecars, got %d", len(sidecars))
-	}
-
-	if sidecars[0].Name != testSSHFSName {
-		t.Errorf("expected first sidecar name '%s', got '%s'",
-			testSSHFSName, sidecars[0].Name)
-	}
-	if sidecars[1].Name != "sshfs-1" {
-		t.Errorf("expected second sidecar name 'sshfs-1', got '%s'", sidecars[1].Name)
+	// sshfs:// should be ignored (plugin handles it)
+	if len(sidecars) != 0 {
+		t.Errorf("expected 0 sidecars for sshfs:// (handled by plugin), got %d", len(sidecars))
 	}
 }
 
@@ -1136,65 +1097,41 @@ func TestExpandMounts_UnsupportedScheme(t *testing.T) {
 	}
 }
 
-func TestExpandMounts_Rsync(t *testing.T) {
+func TestExpandMounts_RsyncIgnored(t *testing.T) {
+	// rsync:// mounts are handled by the plugin, not the operator
 	mounts := []string{
-		"rsync://user@host.example.com:/data/notebooks",
+		"rsync://./local/data",
 	}
 
 	sidecars := expandMounts(mounts)
 
-	if len(sidecars) != 1 {
-		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
-	}
-
-	sidecar := sidecars[0]
-	if sidecar.Name != "rsync-0" {
-		t.Errorf("expected name 'rsync-0', got '%s'", sidecar.Name)
-	}
-	if sidecar.Image != "alpine:latest" {
-		t.Errorf("expected alpine:latest image, got '%s'", sidecar.Image)
-	}
-	if len(sidecar.Command) != 2 || sidecar.Command[0] != "sh" {
-		t.Errorf("expected command 'sh -c', got %v", sidecar.Command)
-	}
-	if len(sidecar.Args) != 1 {
-		t.Errorf("expected 1 arg, got %d", len(sidecar.Args))
-	}
-	// Check the rsync command contains the host and path
-	arg := sidecar.Args[0]
-	if !strings.Contains(arg, "rsync") {
-		t.Errorf("expected arg to contain 'rsync', got '%s'", arg)
-	}
-	if !strings.Contains(arg, "user@host.example.com") {
-		t.Errorf("expected arg to contain 'user@host.example.com', got '%s'", arg)
-	}
-	if !strings.Contains(arg, "/data/notebooks") {
-		t.Errorf("expected arg to contain '/data/notebooks', got '%s'", arg)
+	// rsync:// should be ignored (plugin handles it)
+	if len(sidecars) != 0 {
+		t.Errorf("expected 0 sidecars for rsync:// (handled by plugin), got %d", len(sidecars))
 	}
 }
 
 func TestExpandMounts_MixedSchemes(t *testing.T) {
+	// Only cw:// should produce sidecars, sshfs:// and rsync:// are handled by plugin
 	mounts := []string{
-		"sshfs://user1@host1:/path1",
-		"rsync://user2@host2:/path2",
+		"sshfs:///path1",
+		"rsync://./path2",
+		"cw://bucket/path3",
 	}
 
 	sidecars := expandMounts(mounts)
 
-	if len(sidecars) != 2 {
-		t.Fatalf("expected 2 sidecars, got %d", len(sidecars))
+	// Only cw:// should produce sidecar
+	if len(sidecars) != 1 {
+		t.Fatalf("expected 1 sidecar (cw:// only), got %d", len(sidecars))
 	}
 
-	if sidecars[0].Name != testSSHFSName {
-		t.Errorf("expected first sidecar name '%s', got '%s'",
-			testSSHFSName, sidecars[0].Name)
-	}
-	if sidecars[1].Name != "rsync-1" {
-		t.Errorf("expected second sidecar name 'rsync-1', got '%s'", sidecars[1].Name)
+	if sidecars[0].Name != "cw-2" {
+		t.Errorf("expected sidecar name 'cw-2', got '%s'", sidecars[0].Name)
 	}
 }
 
-func TestBuildPod_WithMounts(t *testing.T) {
+func TestBuildPod_WithCWMounts(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "test-notebook",
@@ -1205,7 +1142,7 @@ func TestBuildPod_WithMounts(t *testing.T) {
 			Port:   2718,
 			Source: "https://github.com/marimo-team/marimo.git",
 			Mounts: []string{
-				"sshfs://user@host:/remote/data",
+				"cw://mybucket/data",
 			},
 			Storage: &marimov1alpha1.StorageSpec{
 				Size: "1Gi",
@@ -1215,7 +1152,7 @@ func TestBuildPod_WithMounts(t *testing.T) {
 
 	pod := BuildPod(notebook)
 
-	// Should have marimo + 1 sshfs sidecar
+	// Should have marimo + 1 cw sidecar
 	if len(pod.Spec.Containers) != 2 {
 		t.Fatalf("expected 2 containers, got %d", len(pod.Spec.Containers))
 	}
@@ -1226,115 +1163,10 @@ func TestBuildPod_WithMounts(t *testing.T) {
 			testMarimoContainer, pod.Spec.Containers[0].Name)
 	}
 
-	// Second container should be sshfs sidecar
-	sshfsSidecar := pod.Spec.Containers[1]
-	if sshfsSidecar.Name != testSSHFSName {
-		t.Errorf("expected sidecar name '%s', got '%s'", testSSHFSName, sshfsSidecar.Name)
-	}
-}
-
-func TestParseRemoteMountURI_Basic(t *testing.T) {
-	tests := []struct {
-		name           string
-		uri            string
-		scheme         string
-		wantUserHost   string
-		wantSourcePath string
-		wantMountPoint string
-	}{
-		{
-			name:           "rsync basic",
-			uri:            "rsync://user@host:/remote/path",
-			scheme:         "rsync",
-			wantUserHost:   "user@host",
-			wantSourcePath: "/remote/path",
-			wantMountPoint: "",
-		},
-		{
-			name:           "rsync with custom mount",
-			uri:            "rsync://user@host:/data:/mnt/custom",
-			scheme:         "rsync",
-			wantUserHost:   "user@host",
-			wantSourcePath: "/data",
-			wantMountPoint: "/mnt/custom",
-		},
-		{
-			name:           "sshfs basic",
-			uri:            "sshfs://admin@server:/files",
-			scheme:         "sshfs",
-			wantUserHost:   "admin@server",
-			wantSourcePath: "/files",
-			wantMountPoint: "",
-		},
-		{
-			name:           "sshfs with custom mount",
-			uri:            "sshfs://admin@server:/files:/home/marimo/data",
-			scheme:         "sshfs",
-			wantUserHost:   "admin@server",
-			wantSourcePath: "/files",
-			wantMountPoint: "/home/marimo/data",
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			userHost, sourcePath, mountPoint := parseRemoteMountURI(tt.uri, tt.scheme)
-			if userHost != tt.wantUserHost {
-				t.Errorf("parseRemoteMountURI() userHost = %q, want %q", userHost, tt.wantUserHost)
-			}
-			if sourcePath != tt.wantSourcePath {
-				t.Errorf("parseRemoteMountURI() sourcePath = %q, want %q", sourcePath, tt.wantSourcePath)
-			}
-			if mountPoint != tt.wantMountPoint {
-				t.Errorf("parseRemoteMountURI() mountPoint = %q, want %q", mountPoint, tt.wantMountPoint)
-			}
-		})
-	}
-}
-
-func TestExpandMounts_CustomMountPoint(t *testing.T) {
-	// Test rsync with custom mount point
-	mounts := []string{
-		"rsync://user@host:/data:/mnt/custom",
-	}
-
-	sidecars := expandMounts(mounts)
-
-	if len(sidecars) != 1 {
-		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
-	}
-
-	// Check that the sidecar command contains the custom mount point
-	args := sidecars[0].Args
-	if len(args) != 1 {
-		t.Fatalf("expected 1 arg, got %d", len(args))
-	}
-
-	if !strings.Contains(args[0], "/mnt/custom") {
-		t.Errorf("expected args to contain '/mnt/custom', got %s", args[0])
-	}
-}
-
-func TestExpandMounts_SSHFSCustomMountPoint(t *testing.T) {
-	// Test sshfs with custom mount point
-	mounts := []string{
-		"sshfs://user@host:/data:/opt/data",
-	}
-
-	sidecars := expandMounts(mounts)
-
-	if len(sidecars) != 1 {
-		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
-	}
-
-	// Check that the sidecar command contains the custom mount point
-	args := sidecars[0].Args
-	if len(args) != 1 {
-		t.Fatalf("expected 1 arg, got %d", len(args))
-	}
-
-	if !strings.Contains(args[0], "/opt/data") {
-		t.Errorf("expected args to contain '/opt/data', got %s", args[0])
+	// Second container should be cw sidecar
+	cwSidecar := pod.Spec.Containers[1]
+	if cwSidecar.Name != testCWSidecarName {
+		t.Errorf("expected sidecar name '%s', got '%s'", testCWSidecarName, cwSidecar.Name)
 	}
 }
 
@@ -1378,8 +1210,8 @@ func TestExpandMounts_CW(t *testing.T) {
 	}
 
 	sidecar := sidecars[0]
-	if sidecar.Name != "cw-0" {
-		t.Errorf("expected name 'cw-0', got %q", sidecar.Name)
+	if sidecar.Name != testCWSidecarName {
+		t.Errorf("expected name '%s', got %q", testCWSidecarName, sidecar.Name)
 	}
 
 	if !strings.Contains(sidecar.Image, "s3fs") {
@@ -1505,7 +1337,7 @@ func TestBuildPod_MountPropagation_WithFUSESidecar(t *testing.T) {
 		if pod.Spec.Containers[i].Name == testMarimoContainer {
 			marimoContainer = &pod.Spec.Containers[i]
 		}
-		if pod.Spec.Containers[i].Name == "cw-0" {
+		if pod.Spec.Containers[i].Name == testCWSidecarName {
 			cwContainer = &pod.Spec.Containers[i]
 		}
 	}
@@ -1514,7 +1346,7 @@ func TestBuildPod_MountPropagation_WithFUSESidecar(t *testing.T) {
 		t.Fatal("marimo container not found")
 	}
 	if cwContainer == nil {
-		t.Fatal("cw-0 container not found")
+		t.Fatalf("%s container not found", testCWSidecarName)
 	}
 
 	// Check marimo has HostToContainer propagation on PVC mount
@@ -1580,6 +1412,98 @@ func TestBuildPod_MountPropagation_WithoutFUSESidecar(t *testing.T) {
 						"when no FUSE sidecars, got %v",
 					*vm.MountPropagation)
 			}
+		}
+	}
+}
+
+func TestBuildPod_SSHFSSidecar_SecretMount(t *testing.T) {
+	// When a sidecar named "sshfs-*" is present, ssh-pubkey secret should be mounted
+	port := int32(2222)
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:   "ghcr.io/marimo-team/marimo:latest",
+			Port:    2718,
+			Content: ptrString("# test notebook"),
+			Storage: &marimov1alpha1.StorageSpec{Size: "1Gi"},
+			Sidecars: []marimov1alpha1.SidecarSpec{
+				{
+					Name:       "sshfs-0",
+					Image:      "linuxserver/openssh-server:latest",
+					ExposePort: &port,
+				},
+			},
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Check ssh-pubkey volume exists
+	var foundSSHPubkeyVolume bool
+	for _, vol := range pod.Spec.Volumes {
+		if vol.Name == testSSHPubkeyName {
+			if vol.Secret == nil || vol.Secret.SecretName != testSSHPubkeyName {
+				t.Errorf("%s volume should reference %s secret", testSSHPubkeyName, testSSHPubkeyName)
+			}
+			foundSSHPubkeyVolume = true
+			break
+		}
+	}
+	if !foundSSHPubkeyVolume {
+		t.Errorf("expected %s volume to be present for sshfs sidecar", testSSHPubkeyName)
+	}
+
+	// Find sshfs sidecar and check it has the secret mounted
+	var sshfsSidecar *corev1.Container
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == "sshfs-0" {
+			sshfsSidecar = &pod.Spec.Containers[i]
+			break
+		}
+	}
+
+	if sshfsSidecar == nil {
+		t.Fatal("sshfs-0 container not found")
+	}
+
+	// Check ssh-pubkey is mounted at /config/ssh-pubkey
+	var foundSSHPubkeyMount bool
+	for _, vm := range sshfsSidecar.VolumeMounts {
+		if vm.Name == testSSHPubkeyName && vm.MountPath == "/config/"+testSSHPubkeyName && vm.ReadOnly {
+			foundSSHPubkeyMount = true
+			break
+		}
+	}
+	if !foundSSHPubkeyMount {
+		t.Error("sshfs sidecar should have ssh-pubkey mounted at /config/ssh-pubkey")
+	}
+}
+
+func TestBuildPod_NoSSHFSSidecar_NoSecretMount(t *testing.T) {
+	// When no sshfs sidecar, ssh-pubkey secret should NOT be added
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:   "ghcr.io/marimo-team/marimo:latest",
+			Port:    2718,
+			Content: ptrString("# test notebook"),
+			Storage: &marimov1alpha1.StorageSpec{Size: "1Gi"},
+			// No sidecars
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Check ssh-pubkey volume does NOT exist
+	for _, vol := range pod.Spec.Volumes {
+		if vol.Name == testSSHPubkeyName {
+			t.Errorf("%s volume should NOT be present when no sshfs sidecar", testSSHPubkeyName)
 		}
 	}
 }

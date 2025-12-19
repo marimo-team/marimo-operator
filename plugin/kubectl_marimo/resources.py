@@ -1,116 +1,96 @@
 """Generate Kubernetes resources for MarimoNotebook."""
 
 import hashlib
+import os
 import re
 from pathlib import Path
 from typing import Any
 
 
-def parse_mount_uri(uri: str) -> tuple[str, str, str | None, str | None]:
-    """Parse mount URI in Docker-style format.
+# Default SSH image, configurable via environment
+SSH_IMAGE = os.environ.get("SSH_IMAGE", "linuxserver/openssh-server:latest")
 
-    Format: <scheme>://[user@host:]<source>[:mount_point]
 
-    Local detection: no '@' in URI (supports relative and absolute paths)
-    Remote detection: has '@' (user@host format)
-
-    Mount point handling:
-    - Absolute (/data) → use as-is
-    - Relative (data) → prepend /home/marimo/notebooks/
-
-    Returns: (scheme, source_path, user_host, mount_point)
+def parse_mount_uri(uri: str) -> tuple[str, str]:
+    """Parse mount URI into (scheme, path).
 
     Examples:
-        rsync://examples:data           → ('rsync', 'examples', None, '/home/marimo/notebooks/data')
-        rsync://examples:/data          → ('rsync', 'examples', None, '/data')
-        rsync:///abs/path:/mnt          → ('rsync', '/abs/path', None, '/mnt')
-        rsync://relative/path           → ('rsync', 'relative/path', None, None)
-        rsync://user@host:/data:/mnt    → ('rsync', '/data', 'user@host', '/mnt')
-        rsync://user@host:/data         → ('rsync', '/data', 'user@host', None)
-        sshfs://user@host:/remote:/mnt  → ('sshfs', '/remote', 'user@host', '/mnt')
+        sshfs:///path → ('sshfs', '/path')
+        rsync://./data → ('rsync', './data')
+        cw://bucket/path → ('cw', 'bucket/path')
     """
-    # Extract scheme
     match = re.match(r"^(\w+)://(.*)$", uri)
     if not match:
         raise ValueError(f"Invalid mount URI: {uri}")
-
-    scheme = match.group(1)
-    remainder = match.group(2)
-
-    # Local mount: rsync scheme with no '@' means local path (relative or absolute)
-    # rsync://examples:/data or rsync:///abs/path:/mnt
-    # Note: only rsync supports local paths; other schemes (sshfs, cw) are always remote
-    if scheme == "rsync" and "@" not in remainder:
-        # Split on last ':' to get source and optional mount point
-        # examples:data → source=examples, mount=/home/marimo/notebooks/data
-        # examples:/data → source=examples, mount=/data
-        # /abs/path:/mnt → source=/abs/path, mount=/mnt
-        parts = remainder.rsplit(":", 1)
-        if len(parts) == 2 and parts[1]:
-            source, mount = parts
-            # Relative mount point → prepend /home/marimo/notebooks/
-            if not mount.startswith("/"):
-                mount = f"/home/marimo/notebooks/{mount}"
-            return (scheme, source, None, mount)
-        return (scheme, remainder, None, None)
-
-    # Remote mount: rsync://user@host:/path or rsync://user@host:/path:/mount
-    # Format: user@host:/source or user@host:/source:/mount
-    # Split at first : that follows the host
-    colon_idx = remainder.find(":/")
-    if colon_idx == -1:
-        raise ValueError(f"Invalid remote mount URI: {uri}")
-
-    user_host = remainder[:colon_idx]
-    path_part = remainder[colon_idx + 1 :]  # includes leading /
-
-    # Check for mount point (another : followed by /)
-    # /data:/mnt → source=/data, mount=/mnt
-    parts = path_part.rsplit(":", 1)
-    if len(parts) == 2 and parts[1].startswith("/"):
-        return (scheme, parts[0], user_host, parts[1])
-    return (scheme, path_part, user_host, None)
-
-
-def is_local_mount(uri: str) -> bool:
-    """Check if mount URI is local (no host).
-
-    Local: rsync:// with no '@' (relative or absolute paths)
-    Remote: has '@' (user@host:/path format) or non-rsync scheme
-    """
-    _, _, user_host, _ = parse_mount_uri(uri)
-    return user_host is None
+    return (match.group(1), match.group(2))
 
 
 def filter_mounts(
     mounts: list[str],
-) -> tuple[list[str], list[tuple[str, str, str | None]]]:
-    """Separate local and remote mounts.
+) -> tuple[list[str], list[tuple[str, str, str]], list[tuple[str, str]]]:
+    """Categorize mounts by scheme.
 
     Returns:
-        (remote_mounts, local_mounts)
-        - remote_mounts: URIs to pass to CRD (operator handles)
-        - local_mounts: list of (source_path, mount_point, scheme) tuples (plugin handles)
+        (cw_mounts, rsync_mounts, sshfs_mounts)
+        - cw_mounts: URIs to pass to CRD (operator handles via s3fs sidecar)
+        - rsync_mounts: list of (source_path, mount_point, scheme) for kubectl cp
+        - sshfs_mounts: list of (remote_path, local_mount) for local sshfs mount
     """
-    remote_mounts = []
-    local_mounts = []
+    cw_mounts = []
+    rsync_mounts = []
+    sshfs_mounts = []
 
     for i, uri in enumerate(mounts):
         try:
-            scheme, source_path, user_host, mount_point = parse_mount_uri(uri)
+            scheme, path = parse_mount_uri(uri)
 
-            if user_host is None:
-                # Local mount - plugin handles via kubectl cp
-                default_mount = f"/home/marimo/notebooks/mounts/local-{i}"
-                local_mounts.append((source_path, mount_point or default_mount, scheme))
+            if scheme == "cw":
+                # CoreWeave S3 - operator handles
+                cw_mounts.append(uri)
+            elif scheme == "rsync":
+                # Local rsync - plugin handles via kubectl cp
+                # Parse optional mount point: rsync://./data:/mnt/data
+                parts = path.rsplit(":", 1)
+                if len(parts) == 2 and parts[1].startswith("/"):
+                    source, mount = parts
+                else:
+                    source = path
+                    mount = f"/home/marimo/notebooks/mounts/local-{i}"
+                rsync_mounts.append((source, mount, scheme))
+            elif scheme == "sshfs":
+                # Local sshfs - plugin runs sshfs locally to mount pod
+                # sshfs:///home/marimo/notebooks means mount pod's /home/marimo/notebooks locally
+                remote_path = path if path.startswith("/") else f"/{path}"
+                local_mount = f"./marimo-mount-{i}"
+                sshfs_mounts.append((remote_path, local_mount))
             else:
-                # Remote mount - pass to CRD as-is
-                remote_mounts.append(uri)
+                # Unknown scheme - pass through to operator
+                cw_mounts.append(uri)
         except ValueError:
-            # Unknown scheme (e.g., cw://) - pass through to operator
-            remote_mounts.append(uri)
+            # Invalid URI - pass through to operator
+            cw_mounts.append(uri)
 
-    return remote_mounts, local_mounts
+    return cw_mounts, rsync_mounts, sshfs_mounts
+
+
+def build_ssh_sidecar(index: int) -> dict[str, Any]:
+    """Build SSH sidecar spec for key-based auth.
+
+    The sidecar runs an SSH server that accepts connections using
+    the user's public key (stored in ssh-pubkey secret).
+    """
+    return {
+        "name": f"sshfs-{index}",
+        "image": SSH_IMAGE,
+        "exposePort": 2222,
+        "env": [
+            {"name": "PASSWORD_ACCESS", "value": "false"},
+            {"name": "USER_NAME", "value": "marimo"},
+            {"name": "PUID", "value": "1000"},
+            {"name": "PGID", "value": "1000"},
+            {"name": "PUBLIC_KEY_FILE", "value": "/config/ssh-pubkey/authorized_keys"},
+        ],
+    }
 
 
 def compute_hash(content: str) -> str:
@@ -180,7 +160,7 @@ def build_marimo_notebook(
     frontmatter: dict[str, Any] | None = None,
     mode: str = "edit",
     source: str | None = None,
-) -> tuple[dict[str, Any], list[tuple[str, str, str | None]]]:
+) -> tuple[dict[str, Any], list[tuple[str, str, str]], list[tuple[str, str]]]:
     """Build MarimoNotebook custom resource.
 
     Args:
@@ -189,12 +169,13 @@ def build_marimo_notebook(
         content: Notebook content (None for directory mode)
         frontmatter: Parsed frontmatter configuration
         mode: Marimo mode - "edit" or "run"
-        source: Data source URI (rsync://, sshfs://)
+        source: Data source URI (rsync://, sshfs://, cw://)
 
     Returns:
-        (resource, local_mounts)
+        (resource, rsync_mounts, sshfs_mounts)
         - resource: CRD dict to apply to cluster
-        - local_mounts: list of (source_path, mount_point, scheme) for plugin to handle
+        - rsync_mounts: list of (source_path, mount_point, scheme) for kubectl cp
+        - sshfs_mounts: list of (remote_path, local_mount) for local sshfs
     """
     spec: dict[str, Any] = {
         "mode": mode,
@@ -223,6 +204,10 @@ def build_marimo_notebook(
         if "env" in frontmatter:
             spec["env"] = parse_env(frontmatter["env"])
 
+        # Resources (CPU, memory, GPU)
+        if "resources" in frontmatter:
+            spec["resources"] = frontmatter["resources"]
+
     # Collect mounts from --source and frontmatter
     all_mounts = []
     if source:
@@ -230,12 +215,20 @@ def build_marimo_notebook(
     if frontmatter and "mounts" in frontmatter:
         all_mounts.extend(frontmatter["mounts"])
 
-    # Separate local (plugin handles) from remote (operator handles)
-    local_mounts: list[tuple[str, str, str | None]] = []
+    # Categorize mounts by scheme
+    rsync_mounts: list[tuple[str, str, str]] = []
+    sshfs_mounts: list[tuple[str, str]] = []
     if all_mounts:
-        remote_mounts, local_mounts = filter_mounts(all_mounts)
-        if remote_mounts:
-            spec["mounts"] = remote_mounts
+        cw_mounts, rsync_mounts, sshfs_mounts = filter_mounts(all_mounts)
+        if cw_mounts:
+            spec["mounts"] = cw_mounts
+
+    # Add SSH sidecars for sshfs mounts
+    sidecars = []
+    for i, _ in enumerate(sshfs_mounts):
+        sidecars.append(build_ssh_sidecar(i))
+    if sidecars:
+        spec["sidecars"] = sidecars
 
     resource = {
         "apiVersion": "marimo.io/v1alpha1",
@@ -246,7 +239,7 @@ def build_marimo_notebook(
         },
         "spec": spec,
     }
-    return resource, local_mounts
+    return resource, rsync_mounts, sshfs_mounts
 
 
 def to_yaml(resource: dict[str, Any]) -> str:
