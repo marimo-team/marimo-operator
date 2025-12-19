@@ -130,7 +130,7 @@ echo "       - Publish kubectl-marimo v$NEW_VERSION to PyPI"
 if ! confirm "Proceed with release?"; then
   print_warning "Release cancelled"
   # Restore files
-  git checkout plugin/kubectl_marimo/__init__.py plugin/pyproject.toml
+  git checkout plugin/kubectl_marimo/__init__.py plugin/pyproject.toml plugin/uv.lock
   exit 1
 fi
 
