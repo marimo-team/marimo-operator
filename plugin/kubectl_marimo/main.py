@@ -108,15 +108,18 @@ def sync(file: str, namespace: str | None, force: bool):
     "-n", "--namespace", help="Kubernetes namespace (default: from swap file)"
 )
 @click.option(
-    "--keep-pvc", is_flag=True, help="Keep PersistentVolumeClaim (preserve data)"
+    "--delete-pvc",
+    is_flag=True,
+    help="Also delete PersistentVolumeClaim (destroys data)",
 )
 @click.option("--no-sync", is_flag=True, help="Delete without syncing changes back")
-def delete(file: str, namespace: str | None, keep_pvc: bool, no_sync: bool):
+def delete(file: str, namespace: str | None, delete_pvc: bool, no_sync: bool):
     """Sync changes, then delete cluster resources.
 
     FILE is the local notebook that was previously deployed.
+    PVC is preserved by default to protect your data.
     """
-    delete_notebook(file, namespace=namespace, keep_pvc=keep_pvc, no_sync=no_sync)
+    delete_notebook(file, namespace=namespace, delete_pvc=delete_pvc, no_sync=no_sync)
 
 
 @cli.command()

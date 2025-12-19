@@ -13,8 +13,6 @@ app = marimo.App()
 
 @app.cell
 def check_sync():
-    import os
-    import marimo as mo
 
     return
 

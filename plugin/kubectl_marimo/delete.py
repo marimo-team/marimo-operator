@@ -6,7 +6,7 @@ from pathlib import Path
 import click
 
 from .formats import parse_file
-from .k8s import delete_resource, exec_in_pod
+from .k8s import delete_resource, exec_in_pod, patch_resource
 from .resources import compute_hash, resource_name, detect_content_type
 from .swap import read_swap_file, delete_swap_file
 from .sync import sync_local_mounts
@@ -17,7 +17,7 @@ def delete_notebook(
     namespace: str | None = None,
     force: bool = False,
     no_sync: bool = False,
-    keep_pvc: bool = False,
+    delete_pvc: bool = False,
 ) -> None:
     """Delete notebook deployment from cluster."""
     path = Path(file_path)
@@ -77,14 +77,19 @@ def delete_notebook(
         if meta.local_mounts:
             sync_local_mounts(meta.name, namespace, meta.local_mounts)
 
-    # Delete the MarimoNotebook resource
-    # Note: PVC is deleted via owner reference unless keep_pvc is set
-    if keep_pvc:
-        click.echo("Note: --keep-pvc requires manual PVC deletion prevention")
-        click.echo(
-            f'      kubectl patch pvc -n {namespace} {name}-pvc -p \'{{"metadata":{{"ownerReferences":[]}}}}\''
-        )
+    # By default, preserve PVC by removing owner references before delete
+    # With --delete-pvc, skip patching so PVC is garbage collected
+    if not delete_pvc:
+        pvc_name = f"{name}-pvc"
+        patch_json = '{"metadata":{"ownerReferences":null}}'
+        if not patch_resource("pvc", pvc_name, namespace, patch_json):
+            click.echo(
+                "Warning: Could not patch PVC to remove owner references. "
+                "PVC may be deleted with the notebook.",
+                err=True,
+            )
 
+    # Delete the MarimoNotebook resource
     if not delete_resource("marimos.marimo.io", name, namespace):
         sys.exit(1)
 

@@ -16,6 +16,8 @@ const (
 	testSetupVenv       = "setup-venv"
 	testSSHDContainer   = "sshd"
 	testSSHFSName       = "sshfs-0"
+	testCWSidecarName   = "cw-0"
+	testSSHPubkeyName   = "ssh-pubkey"
 )
 
 func TestBuildPod_BasicConfig(t *testing.T) {
@@ -1163,8 +1165,8 @@ func TestBuildPod_WithCWMounts(t *testing.T) {
 
 	// Second container should be cw sidecar
 	cwSidecar := pod.Spec.Containers[1]
-	if cwSidecar.Name != "cw-0" {
-		t.Errorf("expected sidecar name 'cw-0', got '%s'", cwSidecar.Name)
+	if cwSidecar.Name != testCWSidecarName {
+		t.Errorf("expected sidecar name '%s', got '%s'", testCWSidecarName, cwSidecar.Name)
 	}
 }
 
@@ -1208,8 +1210,8 @@ func TestExpandMounts_CW(t *testing.T) {
 	}
 
 	sidecar := sidecars[0]
-	if sidecar.Name != "cw-0" {
-		t.Errorf("expected name 'cw-0', got %q", sidecar.Name)
+	if sidecar.Name != testCWSidecarName {
+		t.Errorf("expected name '%s', got %q", testCWSidecarName, sidecar.Name)
 	}
 
 	if !strings.Contains(sidecar.Image, "s3fs") {
@@ -1335,7 +1337,7 @@ func TestBuildPod_MountPropagation_WithFUSESidecar(t *testing.T) {
 		if pod.Spec.Containers[i].Name == testMarimoContainer {
 			marimoContainer = &pod.Spec.Containers[i]
 		}
-		if pod.Spec.Containers[i].Name == "cw-0" {
+		if pod.Spec.Containers[i].Name == testCWSidecarName {
 			cwContainer = &pod.Spec.Containers[i]
 		}
 	}
@@ -1344,7 +1346,7 @@ func TestBuildPod_MountPropagation_WithFUSESidecar(t *testing.T) {
 		t.Fatal("marimo container not found")
 	}
 	if cwContainer == nil {
-		t.Fatal("cw-0 container not found")
+		t.Fatalf("%s container not found", testCWSidecarName)
 	}
 
 	// Check marimo has HostToContainer propagation on PVC mount
@@ -1442,16 +1444,16 @@ func TestBuildPod_SSHFSSidecar_SecretMount(t *testing.T) {
 	// Check ssh-pubkey volume exists
 	var foundSSHPubkeyVolume bool
 	for _, vol := range pod.Spec.Volumes {
-		if vol.Name == "ssh-pubkey" {
-			if vol.Secret == nil || vol.Secret.SecretName != "ssh-pubkey" {
-				t.Error("ssh-pubkey volume should reference ssh-pubkey secret")
+		if vol.Name == testSSHPubkeyName {
+			if vol.Secret == nil || vol.Secret.SecretName != testSSHPubkeyName {
+				t.Errorf("%s volume should reference %s secret", testSSHPubkeyName, testSSHPubkeyName)
 			}
 			foundSSHPubkeyVolume = true
 			break
 		}
 	}
 	if !foundSSHPubkeyVolume {
-		t.Error("expected ssh-pubkey volume to be present for sshfs sidecar")
+		t.Errorf("expected %s volume to be present for sshfs sidecar", testSSHPubkeyName)
 	}
 
 	// Find sshfs sidecar and check it has the secret mounted
@@ -1470,7 +1472,7 @@ func TestBuildPod_SSHFSSidecar_SecretMount(t *testing.T) {
 	// Check ssh-pubkey is mounted at /config/ssh-pubkey
 	var foundSSHPubkeyMount bool
 	for _, vm := range sshfsSidecar.VolumeMounts {
-		if vm.Name == "ssh-pubkey" && vm.MountPath == "/config/ssh-pubkey" && vm.ReadOnly {
+		if vm.Name == testSSHPubkeyName && vm.MountPath == "/config/"+testSSHPubkeyName && vm.ReadOnly {
 			foundSSHPubkeyMount = true
 			break
 		}
@@ -1500,8 +1502,8 @@ func TestBuildPod_NoSSHFSSidecar_NoSecretMount(t *testing.T) {
 
 	// Check ssh-pubkey volume does NOT exist
 	for _, vol := range pod.Spec.Volumes {
-		if vol.Name == "ssh-pubkey" {
-			t.Error("ssh-pubkey volume should NOT be present when no sshfs sidecar")
+		if vol.Name == testSSHPubkeyName {
+			t.Errorf("%s volume should NOT be present when no sshfs sidecar", testSSHPubkeyName)
 		}
 	}
 }
