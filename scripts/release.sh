@@ -101,6 +101,10 @@ sed -i '' "s/__version__ = \".*\"/__version__ = \"$NEW_VERSION\"/" plugin/kubect
 # Update plugin pyproject.toml
 sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" plugin/pyproject.toml
 
+cd plugin
+uv lock
+cd ..
+
 # Run Go tests
 print_step "Running Go tests"
 make test
