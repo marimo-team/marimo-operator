@@ -1,6 +1,6 @@
 [project]
 name = "kubectl-marimo"
-version = "0.2.1"
+version = "0.2.2"
 description = "kubectl plugin for deploying marimo notebooks to Kubernetes"
 readme = "README.md"
 license = {text = "Apache-2.0"}
