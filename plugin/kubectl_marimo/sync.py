@@ -13,7 +13,7 @@ from .swap import read_swap_file, write_swap_file
 
 def sync_local_mounts(
     name: str,
-    namespace: str,
+    namespace: str | None,
     local_mounts: list[dict],
 ) -> None:
     """Sync mount points from pod to local.

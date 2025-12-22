@@ -39,11 +39,13 @@ def apply_resource(resource: dict[str, Any], dry_run: bool = False) -> bool:
 def delete_resource(
     kind: str,
     name: str,
-    namespace: str,
+    namespace: str | None,
     ignore_not_found: bool = True,
 ) -> bool:
     """Delete a Kubernetes resource using kubectl."""
-    cmd = ["kubectl", "delete", kind, name, "-n", namespace]
+    cmd = ["kubectl", "delete", kind, name]
+    if namespace is not None:
+        cmd.extend(["-n", namespace])
     if ignore_not_found:
         cmd.append("--ignore-not-found")
 
@@ -61,7 +63,7 @@ def delete_resource(
 
 def exec_in_pod(
     pod_name: str,
-    namespace: str,
+    namespace: str | None,
     command: str,
 ) -> tuple[bool, str]:
     """Execute command in pod using kubectl exec.
@@ -71,14 +73,15 @@ def exec_in_pod(
     cmd = [
         "kubectl",
         "exec",
-        "-n",
-        namespace,
         pod_name,
         "--",
         "sh",
         "-c",
         command,
     ]
+    if namespace is not None:
+        cmd.insert(2, namespace)
+        cmd.insert(2, "-n")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -88,9 +91,12 @@ def exec_in_pod(
         return False, "kubectl not found in PATH"
 
 
-def get_pod_logs(pod_name: str, namespace: str) -> tuple[bool, str]:
+def get_pod_logs(pod_name: str, namespace: str | None) -> tuple[bool, str]:
     """Get pod logs using kubectl logs."""
-    cmd = ["kubectl", "logs", "-n", namespace, pod_name]
+    cmd = ["kubectl", "logs", pod_name]
+    if namespace is not None:
+        cmd.insert(2, namespace)
+        cmd.insert(2, "-n")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -103,7 +109,7 @@ def get_pod_logs(pod_name: str, namespace: str) -> tuple[bool, str]:
 def patch_resource(
     kind: str,
     name: str,
-    namespace: str,
+    namespace: str | None,
     patch: str,
 ) -> bool:
     """Patch a Kubernetes resource using kubectl.
@@ -115,12 +121,13 @@ def patch_resource(
         "patch",
         kind,
         name,
-        "-n",
-        namespace,
         "--type=merge",
         "-p",
         patch,
     ]
+    if namespace is not None:
+        cmd.insert(4, namespace)
+        cmd.insert(4, "-n")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
@@ -136,7 +143,7 @@ def patch_resource(
 def get_resource(
     kind: str,
     name: str,
-    namespace: str,
+    namespace: str | None,
 ) -> tuple[bool, dict[str, Any] | str]:
     """Get a Kubernetes resource as dict.
 
@@ -144,7 +151,10 @@ def get_resource(
     """
     import yaml
 
-    cmd = ["kubectl", "get", kind, name, "-n", namespace, "-o", "yaml"]
+    cmd = ["kubectl", "get", kind, name, "-o", "yaml"]
+    if namespace is not None:
+        cmd.insert(4, namespace)
+        cmd.insert(4, "-n")
     try:
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:

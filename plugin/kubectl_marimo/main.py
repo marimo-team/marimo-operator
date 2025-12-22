@@ -28,14 +28,19 @@ def cli():
 
 @cli.command()
 @click.argument("file", type=click.Path(exists=True), required=False, default=".")
-@click.option("-n", "--namespace", default="default", help="Kubernetes namespace")
+@click.option(
+    "-n",
+    "--namespace",
+    default=None,
+    help="Kubernetes namespace (default: from kubectl context)",
+)
 @click.option("--source", help="Data source URI (cw://, sshfs://, rsync://)")
 @click.option("--dry-run", is_flag=True, help="Print YAML without applying")
 @click.option("--headless", is_flag=True, help="Deploy without port-forward or browser")
 @click.option("--force", "-f", is_flag=True, help="Overwrite without prompting")
 def edit(
     file: str,
-    namespace: str,
+    namespace: str | None,
     source: str | None,
     dry_run: bool,
     headless: bool,
@@ -58,14 +63,19 @@ def edit(
 
 @cli.command()
 @click.argument("file", type=click.Path(exists=True))
-@click.option("-n", "--namespace", default="default", help="Kubernetes namespace")
+@click.option(
+    "-n",
+    "--namespace",
+    default=None,
+    help="Kubernetes namespace (default: from kubectl context)",
+)
 @click.option("--source", help="Data source URI (cw://, sshfs://, rsync://)")
 @click.option("--dry-run", is_flag=True, help="Print YAML without applying")
 @click.option("--headless", is_flag=True, help="Deploy without port-forward or browser")
 @click.option("--force", "-f", is_flag=True, help="Overwrite without prompting")
 def run(
     file: str,
-    namespace: str,
+    namespace: str | None,
     source: str | None,
     dry_run: bool,
     headless: bool,

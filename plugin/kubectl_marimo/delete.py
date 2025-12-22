@@ -34,8 +34,9 @@ def delete_notebook(
     meta = read_swap_file(file_path)
 
     # Use namespace from swap file if not specified
-    if namespace is None:
-        namespace = meta.namespace if meta else "default"
+    # If no swap file, leave as None to let kubectl use context namespace
+    if namespace is None and meta:
+        namespace = meta.namespace
 
     # Sync before delete (unless --no-sync)
     if not no_sync and meta is not None:

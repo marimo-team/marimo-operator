@@ -155,7 +155,7 @@ def parse_env(env_dict: dict[str, Any]) -> list[dict[str, Any]]:
 
 def build_marimo_notebook(
     name: str,
-    namespace: str,
+    namespace: str | None,
     content: str | None,
     frontmatter: dict[str, Any] | None = None,
     mode: str = "edit",
@@ -165,7 +165,7 @@ def build_marimo_notebook(
 
     Args:
         name: Resource name
-        namespace: Kubernetes namespace
+        namespace: Kubernetes namespace (None = use kubectl context)
         content: Notebook content (None for directory mode)
         frontmatter: Parsed frontmatter configuration
         mode: Marimo mode - "edit" or "run"
@@ -230,13 +230,14 @@ def build_marimo_notebook(
     if sidecars:
         spec["sidecars"] = sidecars
 
+    metadata = {"name": name}
+    if namespace is not None:
+        metadata["namespace"] = namespace
+
     resource = {
         "apiVersion": "marimo.io/v1alpha1",
         "kind": "MarimoNotebook",
-        "metadata": {
-            "name": name,
-            "namespace": namespace,
-        },
+        "metadata": metadata,
         "spec": spec,
     }
     return resource, rsync_mounts, sshfs_mounts

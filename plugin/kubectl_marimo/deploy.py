@@ -19,11 +19,11 @@ from .swap import read_swap_file, write_swap_file, create_swap_meta
 from .sync import sync_notebook
 
 
-def ensure_cw_credentials(namespace: str) -> bool:
+def ensure_cw_credentials(namespace: str | None) -> bool:
     """Create cw-credentials secret from ~/.s3cfg if needed.
 
     Args:
-        namespace: Kubernetes namespace
+        namespace: Kubernetes namespace (None = use kubectl context)
 
     Returns:
         True if secret exists or was created, False if no credentials available
@@ -37,8 +37,11 @@ def ensure_cw_credentials(namespace: str) -> bool:
         return False
 
     # Check if secret already exists
+    cmd = ["kubectl", "get", "secret", "cw-credentials"]
+    if namespace is not None:
+        cmd.extend(["-n", namespace])
     result = subprocess.run(
-        ["kubectl", "get", "secret", "cw-credentials", "-n", namespace],
+        cmd,
         capture_output=True,
     )
     if result.returncode == 0:
@@ -56,18 +59,20 @@ def ensure_cw_credentials(namespace: str) -> bool:
         return False
 
     # Create secret
+    cmd = [
+        "kubectl",
+        "create",
+        "secret",
+        "generic",
+        "cw-credentials",
+        f"--from-literal=AWS_ACCESS_KEY_ID={access_key}",
+        f"--from-literal=AWS_SECRET_ACCESS_KEY={secret_key}",
+    ]
+    if namespace is not None:
+        cmd.insert(5, namespace)
+        cmd.insert(5, "-n")
     result = subprocess.run(
-        [
-            "kubectl",
-            "create",
-            "secret",
-            "generic",
-            "cw-credentials",
-            "-n",
-            namespace,
-            f"--from-literal=AWS_ACCESS_KEY_ID={access_key}",
-            f"--from-literal=AWS_SECRET_ACCESS_KEY={secret_key}",
-        ],
+        cmd,
         capture_output=True,
         text=True,
     )
@@ -94,19 +99,22 @@ def has_sshfs_sidecars(resource: dict) -> bool:
     return any(s.get("name", "").startswith("sshfs-") for s in sidecars)
 
 
-def ensure_ssh_pubkey(namespace: str, dry_run: bool = False) -> bool:
+def ensure_ssh_pubkey(namespace: str | None, dry_run: bool = False) -> bool:
     """Create ssh-pubkey secret from public key.
 
     Args:
-        namespace: K8s namespace
+        namespace: K8s namespace (None = use kubectl context)
         dry_run: If True, only print what would be done
 
     Returns True if secret exists or was created (or would be in dry_run).
     """
     # Check if secret already exists
     if not dry_run:
+        cmd = ["kubectl", "get", "secret", "ssh-pubkey"]
+        if namespace is not None:
+            cmd.extend(["-n", namespace])
         result = subprocess.run(
-            ["kubectl", "get", "secret", "ssh-pubkey", "-n", namespace],
+            cmd,
             capture_output=True,
         )
         if result.returncode == 0:
@@ -171,17 +179,19 @@ def ensure_ssh_pubkey(namespace: str, dry_run: bool = False) -> bool:
         return True
 
     # Create secret
+    cmd = [
+        "kubectl",
+        "create",
+        "secret",
+        "generic",
+        "ssh-pubkey",
+        f"--from-file=authorized_keys={pub_key_path}",
+    ]
+    if namespace is not None:
+        cmd.insert(5, namespace)
+        cmd.insert(5, "-n")
     result = subprocess.run(
-        [
-            "kubectl",
-            "create",
-            "secret",
-            "generic",
-            "ssh-pubkey",
-            "-n",
-            namespace,
-            f"--from-file=authorized_keys={pub_key_path}",
-        ],
+        cmd,
         capture_output=True,
         text=True,
     )
@@ -198,7 +208,7 @@ def ensure_ssh_pubkey(namespace: str, dry_run: bool = False) -> bool:
 
 def setup_local_sshfs_mount(
     name: str,
-    namespace: str,
+    namespace: str | None,
     remote_path: str,
     local_mount: str,
     ssh_port: int = 2222,
@@ -207,7 +217,7 @@ def setup_local_sshfs_mount(
 
     Args:
         name: Resource name
-        namespace: Kubernetes namespace
+        namespace: Kubernetes namespace (None = use kubectl context)
         remote_path: Path inside the pod to mount
         local_mount: Local directory to mount to
         ssh_port: SSH port to forward
@@ -223,15 +233,17 @@ def setup_local_sshfs_mount(
     local_ssh_port = find_available_port(ssh_port)
 
     # Always start port-forward for SSH access (even without sshfs)
+    cmd = [
+        "kubectl",
+        "port-forward",
+        f"svc/{name}",
+        f"{local_ssh_port}:2222",
+    ]
+    if namespace is not None:
+        cmd.insert(2, namespace)
+        cmd.insert(2, "-n")
     pf_proc = subprocess.Popen(
-        [
-            "kubectl",
-            "port-forward",
-            "-n",
-            namespace,
-            f"svc/{name}",
-            f"{local_ssh_port}:2222",
-        ],
+        cmd,
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
@@ -309,7 +321,7 @@ def cleanup_sshfs_mount(local_mount: str, pf_proc: subprocess.Popen | None) -> N
 def deploy_notebook(
     file_path: str,
     mode: str = "edit",
-    namespace: str = "default",
+    namespace: str | None = None,
     source: str | None = None,
     dry_run: bool = False,
     headless: bool = False,
@@ -320,7 +332,7 @@ def deploy_notebook(
     Args:
         file_path: Path to notebook file or directory
         mode: Marimo mode - "edit" (interactive) or "run" (read-only)
-        namespace: Kubernetes namespace
+        namespace: Kubernetes namespace (None = use kubectl context)
         source: Data source URI (cw://, sshfs://, rsync://)
         dry_run: Print YAML without applying
         headless: Deploy without port-forward or browser
@@ -443,7 +455,7 @@ def deploy_notebook(
 
 def print_access_info(
     name: str,
-    namespace: str,
+    namespace: str | None,
     mode: str,
     frontmatter: dict | None,
     sshfs_mounts: list[tuple[str, str]] | None = None,
@@ -455,7 +467,8 @@ def print_access_info(
 
     click.echo()
     click.echo("To access your notebook:")
-    click.echo(f"  kubectl port-forward -n {namespace} svc/{name} {port}:{port} &")
+    ns_flag = f"-n {namespace} " if namespace is not None else ""
+    click.echo(f"  kubectl port-forward {ns_flag}svc/{name} {port}:{port} &")
 
     # Check auth configuration
     auth_disabled = frontmatter and frontmatter.get("auth") == "none"
@@ -468,7 +481,7 @@ def print_access_info(
         click.echo(f"  open http://localhost:{port}")
         click.echo()
         click.echo("Note: Token is auto-generated. Check pod logs:")
-        click.echo(f"  kubectl logs -n {namespace} {name} | grep token")
+        click.echo(f"  kubectl logs {ns_flag}{name} | grep token")
 
     if mode == "run":
         click.echo()
@@ -478,7 +491,7 @@ def print_access_info(
     if sshfs_mounts:
         click.echo()
         click.echo("To mount pod filesystem locally:")
-        click.echo(f"  kubectl port-forward -n {namespace} svc/{name} 2222:2222 &")
+        click.echo(f"  kubectl port-forward {ns_flag}svc/{name} 2222:2222 &")
         for remote_path, local_mount in sshfs_mounts:
             click.echo(f"  mkdir -p {local_mount}")
             click.echo(f"  sshfs marimo@localhost:{remote_path} {local_mount} -p 2222")
@@ -486,7 +499,7 @@ def print_access_info(
 
 def open_notebook(
     name: str,
-    namespace: str,
+    namespace: str | None,
     port: int,
     file_path: str,
     sshfs_mounts: list[tuple[str, str]] | None = None,
@@ -495,7 +508,7 @@ def open_notebook(
 
     Args:
         name: Resource name
-        namespace: Kubernetes namespace
+        namespace: Kubernetes namespace (None = use kubectl context)
         port: Service port
         file_path: Path to local notebook file (for sync on exit)
         sshfs_mounts: List of (remote_path, local_mount) for sshfs mounts
@@ -537,17 +550,17 @@ def open_notebook(
     webbrowser.open(url)
 
     # Port-forward (blocking)
+    cmd = [
+        "kubectl",
+        "port-forward",
+        f"svc/{name}",
+        f"{local_port}:{port}",
+    ]
+    if namespace is not None:
+        cmd.insert(2, namespace)
+        cmd.insert(2, "-n")
     try:
-        subprocess.run(
-            [
-                "kubectl",
-                "port-forward",
-                "-n",
-                namespace,
-                f"svc/{name}",
-                f"{local_port}:{port}",
-            ]
-        )
+        subprocess.run(cmd)
     except KeyboardInterrupt:
         # Clean up sshfs mounts
         if sshfs_procs:
@@ -563,17 +576,20 @@ def open_notebook(
         click.echo("Done")
 
 
-def get_access_token(name: str, namespace: str) -> str | None:
+def get_access_token(name: str, namespace: str | None) -> str | None:
     """Extract access token from marimo pod logs.
 
     Args:
         name: Pod name
-        namespace: Kubernetes namespace
+        namespace: Kubernetes namespace (None = use kubectl context)
 
     Returns:
         Access token if found, None otherwise
     """
-    cmd = ["kubectl", "logs", "-n", namespace, name, "-c", "marimo"]
+    cmd = ["kubectl", "logs", name, "-c", "marimo"]
+    if namespace is not None:
+        cmd.insert(2, namespace)
+        cmd.insert(2, "-n")
     result = subprocess.run(cmd, capture_output=True, text=True)
 
     # marimo logs: "URL: http://0.0.0.0:2718?access_token=ABC123"
@@ -581,12 +597,12 @@ def get_access_token(name: str, namespace: str) -> str | None:
     return match.group(1) if match else None
 
 
-def wait_for_ready(name: str, namespace: str, timeout: int = 120) -> bool:
+def wait_for_ready(name: str, namespace: str | None, timeout: int = 120) -> bool:
     """Wait for pod to be ready.
 
     Args:
         name: Pod name
-        namespace: Kubernetes namespace
+        namespace: Kubernetes namespace (None = use kubectl context)
         timeout: Timeout in seconds
 
     Returns:
@@ -595,19 +611,20 @@ def wait_for_ready(name: str, namespace: str, timeout: int = 120) -> bool:
     cmd = [
         "kubectl",
         "wait",
-        "-n",
-        namespace,
         f"pod/{name}",
         "--for=condition=Ready",
         f"--timeout={timeout}s",
     ]
+    if namespace is not None:
+        cmd.insert(2, namespace)
+        cmd.insert(2, "-n")
     result = subprocess.run(cmd, capture_output=True)
     return result.returncode == 0
 
 
 def sync_local_source(
     name: str,
-    namespace: str,
+    namespace: str | None,
     local_path: str,
     mount_point: str,
 ) -> bool:
@@ -615,7 +632,7 @@ def sync_local_source(
 
     Args:
         name: Pod name
-        namespace: Kubernetes namespace
+        namespace: Kubernetes namespace (None = use kubectl context)
         local_path: Local directory to copy
         mount_point: Target path inside pod
 
@@ -631,8 +648,6 @@ def sync_local_source(
     mkdir_cmd = [
         "kubectl",
         "exec",
-        "-n",
-        namespace,
         name,
         "-c",
         "marimo",
@@ -641,6 +656,9 @@ def sync_local_source(
         "-p",
         mount_point,
     ]
+    if namespace is not None:
+        mkdir_cmd.insert(2, namespace)
+        mkdir_cmd.insert(2, "-n")
     subprocess.run(mkdir_cmd, capture_output=True)
 
     # Use kubectl cp to copy files
@@ -651,14 +669,20 @@ def sync_local_source(
     else:
         src = local_path
 
+    # Build pod reference - use pod/name format with optional -n flag
+    dest = f"pod/{name}:{mount_point}"
+
     cp_cmd = [
         "kubectl",
         "cp",
         src,
-        f"{namespace}/{name}:{mount_point}",
+        dest,
         "-c",
         "marimo",
     ]
+    if namespace is not None:
+        cp_cmd.insert(2, namespace)
+        cp_cmd.insert(2, "-n")
     result = subprocess.run(cp_cmd, capture_output=True, text=True)
     if result.returncode != 0:
         click.echo(f"Warning: Failed to sync {local_path}: {result.stderr}", err=True)
@@ -668,8 +692,6 @@ def sync_local_source(
     cleanup_cmd = [
         "kubectl",
         "exec",
-        "-n",
-        namespace,
         name,
         "-c",
         "marimo",
@@ -680,6 +702,9 @@ def sync_local_source(
         "*.marimo",
         "-delete",
     ]
+    if namespace is not None:
+        cleanup_cmd.insert(2, namespace)
+        cleanup_cmd.insert(2, "-n")
     subprocess.run(cleanup_cmd, capture_output=True)
 
     click.echo(f"Synced {local_path} → {mount_point}")
