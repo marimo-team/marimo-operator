@@ -6,6 +6,7 @@
 
 import marimo
 
+__generated_with = "0.18.4"
 app = marimo.App()
 
 
@@ -16,14 +17,7 @@ def check():
 
     path = "/home/marimo/notebooks"
     files = os.listdir(path) if os.path.exists(path) else []
-
-    return mo.md(f"""
-# Storage Test (2Gi PVC)
-
-**Notebook directory:** `{path}`
-
-**Files:** {files}
-""")
+    return
 
 
 if __name__ == "__main__":

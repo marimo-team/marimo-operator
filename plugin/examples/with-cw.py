@@ -4,9 +4,10 @@
 # [tool.marimo.k8s]
 # mounts = ["cw://operator-bucket"]
 # Note: cw-credentials secret is auto-created from ~/.s3cfg by the plugin
+
 import marimo
 
-__generated_with = "0.16.4"
+__generated_with = "0.18.4"
 app = marimo.App()
 
 
@@ -32,7 +33,6 @@ def check_mount():
     result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
     if "s3fs" in result.stdout:
         print("\ns3fs process is running!")
-
     return
 
 

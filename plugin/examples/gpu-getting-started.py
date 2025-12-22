@@ -10,6 +10,7 @@
 
 import marimo
 
+__generated_with = "0.18.4"
 app = marimo.App()
 
 
@@ -43,7 +44,7 @@ def _(mo):
     | Device | {device_name} |
     | PyTorch Version | {torch.__version__} |
     """)
-    return device, gpu_available, torch
+    return device, torch
 
 
 @app.cell
@@ -82,7 +83,7 @@ def _(device, mo, size_slider, torch):
     3. **Share results** — cached data persists in storage, accessible
        across sessions
     """)
-    return (matrix_multiply,)
+    return
 
 
 @app.cell

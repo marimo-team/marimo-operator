@@ -7,13 +7,13 @@
 
 import marimo
 
-__generated_with = "0.16.4"
+__generated_with = "0.18.4"
 app = marimo.App()
 
 
 @app.cell
-def check_sync():
-
+def _():
+    import marimo as mo
     return
 
 

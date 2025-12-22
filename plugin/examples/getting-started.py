@@ -7,6 +7,7 @@
 
 import marimo
 
+__generated_with = "0.18.4"
 app = marimo.App()
 
 
@@ -62,7 +63,7 @@ def _(mo, slider):
     This cell depends on `slider.value`, so it updates automatically when you
     interact with the slider. marimo tracks these dependencies for you.
     """)
-    return (result,)
+    return
 
 
 @app.cell

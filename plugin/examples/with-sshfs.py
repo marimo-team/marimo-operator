@@ -7,6 +7,7 @@
 
 import marimo
 
+__generated_with = "0.18.4"
 app = marimo.App()
 
 
@@ -18,16 +19,7 @@ def check_mount():
     mount_path = "/home/marimo/notebooks/mounts/sshfs-0"
     exists = os.path.exists(mount_path)
     files = os.listdir(mount_path) if exists else []
-
-    return mo.md(f"""
-# SSHFS Mount Test
-
-**Mount path:** `{mount_path}`
-
-**Mounted:** {exists}
-
-**Files:** {files}
-""")
+    return
 
 
 if __name__ == "__main__":
