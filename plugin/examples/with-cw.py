@@ -1,8 +1,8 @@
 # /// script
 # dependencies = ["marimo"]
-# ///
 # [tool.marimo.k8s]
 # mounts = ["cw://operator-bucket"]
+# ///
 # Note: cw-credentials secret is auto-created from ~/.s3cfg by the plugin
 
 import marimo
@@ -33,13 +33,11 @@ def check_mount():
     result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
     if "s3fs" in result.stdout:
         print("\ns3fs process is running!")
-    return
+    return (os,)
 
 
 @app.cell
-def read_test_file():
-    import os
-
+def read_test_file(os):
     test_file = "/home/marimo/notebooks/mounts/cw-0/test-data.txt"
     if os.path.exists(test_file):
         with open(test_file) as f:

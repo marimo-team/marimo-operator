@@ -11,11 +11,7 @@ __generated_with = "0.18.4"
 app = marimo.App()
 
 
-@app.cell
-def _():
-    import marimo as mo
 
-    return
 
 
 if __name__ == "__main__":

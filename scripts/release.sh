@@ -136,7 +136,7 @@ fi
 
 # Commit version change
 print_step "Committing version change"
-git add plugin/kubectl_marimo/__init__.py plugin/pyproject.toml
+git add plugin/kubectl_marimo/__init__.py plugin/pyproject.toml plugin/uv.lock
 git commit -m "release: v$NEW_VERSION"
 
 # Push changes

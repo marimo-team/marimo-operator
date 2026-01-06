@@ -13,9 +13,9 @@ from pathlib import Path
 import click
 
 from .formats import parse_file
-from .k8s import apply_resource
+from .k8s import apply_resource, delete_resource, resource_exists
 from .resources import build_marimo_notebook, resource_name, compute_hash, to_yaml
-from .swap import read_swap_file, write_swap_file, create_swap_meta
+from .swap import read_swap_file, write_swap_file, create_swap_meta, delete_swap_file
 from .sync import sync_notebook
 
 
@@ -401,9 +401,17 @@ def deploy_notebook(
             click.echo("Error: SSH pubkey required for sshfs mounts", err=True)
             sys.exit(1)
 
-    # Apply to cluster
-    if not apply_resource(resource):
-        sys.exit(1)
+    # Check if resource already exists
+    already_exists = resource_exists("marimos.marimo.io", name, namespace)
+
+    if already_exists:
+        click.echo(
+            click.style(f"Pod '{name}' already exists. Reconnecting...", fg="yellow")
+        )
+    else:
+        # Apply to cluster
+        if not apply_resource(resource):
+            sys.exit(1)
 
     # Handle rsync mounts - need to wait for pod ready first
     if rsync_mounts:
@@ -573,6 +581,21 @@ def open_notebook(
             sync_notebook(file_path, namespace=namespace, force=True)
         except Exception as e:
             click.echo(f"Warning: Sync failed: {e}", err=True)
+
+        # Prompt user about teardown
+        keep_running = click.confirm("Keep pod running?", default=False)
+        if not keep_running:
+            click.echo("Tearing down pod...")
+            try:
+                delete_resource("marimos.marimo.io", name, namespace)
+                delete_swap_file(file_path)
+            except Exception as e:
+                click.echo(f"Warning: Teardown failed: {e}", err=True)
+        else:
+            click.echo(
+                f"Pod '{name}' left running. Use 'kubectl-marimo delete' to remove later."
+            )
+
         click.echo("Done")
 
 
