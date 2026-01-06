@@ -14,11 +14,10 @@ app = marimo.App()
 @app.cell
 def check_mount():
     import os
-    import marimo as mo
 
     mount_path = "/home/marimo/notebooks/mounts/sshfs-0"
     exists = os.path.exists(mount_path)
-    files = os.listdir(mount_path) if exists else []
+    os.listdir(mount_path) if exists else []
     return
 
 

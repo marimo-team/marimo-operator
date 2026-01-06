@@ -11,17 +11,15 @@ __generated_with = "0.18.4"
 app = marimo.App()
 
 
-@app.cell
-def _():
-    import marimo as mo
-
+@app.cell(hide_code=True)
+def _(mo):
     mo.md("""
     # Welcome to marimo on Kubernetes!
 
     This notebook introduces marimo's **reactive execution model** — if you're
     coming from Jupyter, this is the key difference to understand.
     """)
-    return (mo,)
+    return
 
 
 @app.cell
@@ -31,9 +29,10 @@ def _(mo):
     return (slider,)
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo, slider):
-    mo.md(f"""
+    mo.md(
+        f"""
     ## Reactive execution
 
     You picked **{slider.value}**. Try moving the slider above!
@@ -48,7 +47,8 @@ def _(mo, slider):
     2. **Cells run in dependency order** — Not top-to-bottom, but based on
        which variables each cell uses
     3. **No cell numbers** — Order on the page doesn't determine execution order
-    """)
+    """
+    )
     return
 
 
@@ -66,7 +66,7 @@ def _(mo, slider):
     return
 
 
-@app.cell
+@app.cell(hide_code=True)
 def _(mo):
     mo.md("""
     ## Next steps
@@ -78,6 +78,12 @@ def _(mo):
       dashboard
     """)
     return
+
+
+@app.cell
+def _():
+    import marimo as mo
+    return (mo,)
 
 
 if __name__ == "__main__":

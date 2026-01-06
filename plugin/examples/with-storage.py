@@ -13,10 +13,9 @@ app = marimo.App()
 @app.cell
 def check():
     import os
-    import marimo as mo
 
     path = "/home/marimo/notebooks"
-    files = os.listdir(path) if os.path.exists(path) else []
+    os.listdir(path) if os.path.exists(path) else []
     return
 
 
