@@ -61,6 +61,27 @@ def delete_resource(
         return False
 
 
+def resource_exists(kind: str, name: str, namespace: str | None = None) -> bool:
+    """Check if a Kubernetes resource exists.
+
+    Args:
+        kind: Resource kind (e.g., "marimos.marimo.io", "pod")
+        name: Resource name
+        namespace: Kubernetes namespace (None = use kubectl context)
+
+    Returns:
+        True if resource exists, False otherwise
+    """
+    cmd = ["kubectl", "get", kind, name, "-o", "name"]
+    if namespace is not None:
+        cmd.extend(["-n", namespace])
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
 def exec_in_pod(
     pod_name: str,
     namespace: str | None,
