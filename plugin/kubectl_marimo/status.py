@@ -1,6 +1,6 @@
 """Status command implementation."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import click
@@ -56,7 +56,7 @@ def format_elapsed(iso_timestamp: str) -> str:
     """Format elapsed time since timestamp."""
     try:
         applied = datetime.fromisoformat(iso_timestamp.rstrip("Z"))
-        elapsed = datetime.utcnow() - applied
+        elapsed = datetime.now(timezone.utc) - applied
         total_seconds = elapsed.total_seconds()
 
         if total_seconds < 60:

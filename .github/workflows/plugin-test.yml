@@ -30,3 +30,8 @@ jobs:
         run: |
           cd plugin
           uvx --with pytest-mock --with click --with pyyaml --with kubernetes pytest tests -v
+
+      - name: Type check with ty
+        run: |
+          cd plugin
+          uvx ty check kubectl_marimo

@@ -1,7 +1,6 @@
 """Sync command implementation."""
 
 import subprocess
-import sys
 from pathlib import Path
 
 import click
@@ -61,9 +60,10 @@ def sync_notebook(
     # Read swap file to get pod info
     meta = read_swap_file(file_path)
     if meta is None:
-        click.echo(f"Error: No active deployment found for '{file_path}'", err=True)
-        click.echo("Hint: Run 'kubectl marimo apply' first", err=True)
-        sys.exit(1)
+        raise click.UsageError(
+            f"No active deployment found for '{file_path}'. "
+            "Hint: Run 'kubectl marimo apply' first"
+        )
 
     # Use namespace from swap file if not specified
     if namespace is None:
@@ -102,8 +102,7 @@ def sync_notebook(
     )
 
     if not success:
-        click.echo(f"Error reading from pod: {content}", err=True)
-        sys.exit(1)
+        raise click.ClickException(f"Error reading from pod: {content}")
 
     # Write to local file
     path.write_text(content)

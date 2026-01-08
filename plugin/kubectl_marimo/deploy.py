@@ -438,7 +438,7 @@ def deploy_notebook(
         )
     meta = create_swap_meta(
         name=name,
-        namespace=namespace,
+        namespace=namespace or "default",
         original_file=file_path,
         file_hash=file_hash,
         local_mounts=mounts_data,
