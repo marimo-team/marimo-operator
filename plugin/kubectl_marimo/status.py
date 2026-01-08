@@ -11,9 +11,17 @@ from .swap import SwapMeta
 def show_status(directory: str = ".") -> None:
     """List all active notebook deployments in a directory."""
     dir_path = Path(directory)
+    filter = None
+    if dir_path.is_file():
+        filter = dir_path.stem
+        dir_path = dir_path.parent
 
     # Find all swap files
-    swap_files = list(dir_path.glob(".*.marimo"))
+    swap_files = [
+        file
+        for file in dir_path.glob(".*.marimo")
+        if filter is None or filter in file.stem
+    ]
 
     if not swap_files:
         click.echo("No active notebook deployments found")
@@ -52,10 +60,14 @@ def read_swap_file_direct(swap_path: Path) -> SwapMeta | None:
         return None
 
 
-def format_elapsed(iso_timestamp: str) -> str:
+def format_elapsed(iso_timestamp: str | None) -> str:
     """Format elapsed time since timestamp."""
+    if not iso_timestamp or not isinstance(iso_timestamp, str):
+        return "unknown"
     try:
-        applied = datetime.fromisoformat(iso_timestamp.rstrip("Z"))
+        applied = datetime.fromisoformat(iso_timestamp.rstrip("Z")).replace(
+            tzinfo=timezone.utc
+        )
         elapsed = datetime.now(timezone.utc) - applied
         total_seconds = elapsed.total_seconds()
 

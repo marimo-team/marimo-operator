@@ -47,6 +47,48 @@ class TestSwapMeta:
         assert meta.name == "test"
         assert meta.namespace == "ns"
 
+    def test_from_dict_missing_keys(self):
+        # Handle missing keys gracefully
+        d = {}
+        meta = SwapMeta.from_dict(d)
+        assert meta.name == "<unknown>"
+        assert meta.namespace == "<current>"
+        assert meta.applied_at == "<unknown>"
+        assert meta.original_file == "<unknown>"
+        assert meta.file_hash == "<unknown>"
+        assert meta.local_mounts is None
+
+    def test_from_dict_null_values(self):
+        # Handle null values (key exists but value is None)
+        d = {
+            "name": None,
+            "namespace": None,
+            "applied_at": None,
+            "original_file": None,
+            "file_hash": None,
+            "local_mounts": None,
+        }
+        meta = SwapMeta.from_dict(d)
+        assert meta.name == "<unknown>"
+        assert meta.namespace == "<current>"
+        assert meta.applied_at == "<unknown>"
+        assert meta.original_file == "<unknown>"
+        assert meta.file_hash == "<unknown>"
+        assert meta.local_mounts is None
+
+    def test_from_dict_partial_data(self):
+        # Some fields present, some missing
+        d = {
+            "name": "my-notebook",
+            "namespace": None,
+            "applied_at": "2025-01-01T00:00:00Z",
+        }
+        meta = SwapMeta.from_dict(d)
+        assert meta.name == "my-notebook"
+        assert meta.namespace == "<current>"
+        assert meta.applied_at == "2025-01-01T00:00:00Z"
+        assert meta.original_file == "<unknown>"
+
 
 class TestCreateSwapMeta:
     def test_creates_timestamp(self):

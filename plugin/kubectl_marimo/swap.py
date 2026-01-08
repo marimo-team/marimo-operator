@@ -23,12 +23,13 @@ class SwapMeta:
 
     @classmethod
     def from_dict(cls, data: dict) -> "SwapMeta":
+        # key may be set but null
         return cls(
-            name=data["name"],
-            namespace=data["namespace"],
-            applied_at=data["applied_at"],
-            original_file=data["original_file"],
-            file_hash=data["file_hash"],
+            name=data.get("name") or "<unknown>",
+            namespace=data.get("namespace") or "<current>",
+            applied_at=data.get("applied_at") or "<unknown>",
+            original_file=data.get("original_file") or "<unknown>",
+            file_hash=data.get("file_hash") or "<unknown>",
             local_mounts=data.get("local_mounts"),
         )
 

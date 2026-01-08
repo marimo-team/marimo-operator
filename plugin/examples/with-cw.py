@@ -28,11 +28,6 @@ def check_mount():
                 print(f"  {item}/: {os.listdir(item_path)}")
     else:
         print("Mount directory does not exist yet")
-
-    # Show running processes (to verify s3fs sidecar)
-    result = subprocess.run(["ps", "aux"], capture_output=True, text=True)
-    if "s3fs" in result.stdout:
-        print("\ns3fs process is running!")
     return (os,)
 
 
