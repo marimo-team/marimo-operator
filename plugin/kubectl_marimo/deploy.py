@@ -19,8 +19,65 @@ from .swap import read_swap_file, write_swap_file, create_swap_meta, delete_swap
 from .sync import sync_notebook
 
 
+def check_secret_exists(secret_name: str, namespace: str | None) -> bool:
+    """Check if a Kubernetes secret exists.
+
+    Args:
+        secret_name: Name of the secret
+        namespace: Kubernetes namespace (None = use kubectl context)
+
+    Returns:
+        True if secret exists, False otherwise
+    """
+    cmd = ["kubectl", "get", "secret", secret_name]
+    if namespace is not None:
+        cmd.extend(["-n", namespace])
+    result = subprocess.run(cmd, capture_output=True)
+    return result.returncode == 0
+
+
+def parse_s3_credentials(
+    s3cfg_path: str, namespace: str | None = None
+) -> tuple[str | None, str | None, str | None]:
+    """Parse S3 credentials from ~/.s3cfg.
+
+    Tries sections in order: [namespace] -> [marimo] -> [default].
+    This allows namespace-specific credentials for multi-tenant setups.
+
+    Args:
+        s3cfg_path: Path to the s3cfg file
+        namespace: Optional namespace to try as a section name first
+
+    Returns:
+        (access_key, secret_key, section_name) or (None, None, None) if not found
+    """
+    config = configparser.ConfigParser()
+    config.read(s3cfg_path)
+
+    # Build section priority: namespace (if provided) -> marimo -> default
+    sections = ["marimo", "default"]
+    if namespace:
+        sections.insert(0, namespace)
+
+    for section in sections:
+        try:
+            access_key = config.get(section, "access_key")
+            secret_key = config.get(section, "secret_key")
+            return access_key, secret_key, section
+        except (configparser.NoSectionError, configparser.NoOptionError):
+            continue
+
+    return None, None, None
+
+
 def ensure_cw_credentials(namespace: str | None) -> bool:
-    """Create cw-credentials secret from ~/.s3cfg if needed.
+    """Ensure cw-credentials secret exists for cw:// mounts.
+
+    If the secret already exists, returns True immediately.
+    Otherwise, attempts to create it from ~/.s3cfg credentials.
+
+    In interactive terminals (TTY), prompts for confirmation before creating.
+    In non-interactive environments (CI/CD), creates automatically.
 
     Args:
         namespace: Kubernetes namespace (None = use kubectl context)
@@ -28,43 +85,62 @@ def ensure_cw_credentials(namespace: str | None) -> bool:
     Returns:
         True if secret exists or was created, False if no credentials available
     """
+    # TODO: Support custom secret names via frontmatter `s3_secret` field
+    # and pass through to operator via CRD spec.s3SecretName
+    secret_name = "cw-credentials"  # Hardcoded for now
+    ns_display = namespace or "(current context)"
+
+    # Step 1: Check if secret already exists FIRST (most common case)
+    if check_secret_exists(secret_name, namespace):
+        click.echo(f"Using existing secret '{secret_name}' in {ns_display}")
+        return True
+
+    # Step 2: Secret doesn't exist - check for local credentials
     s3cfg_path = os.path.expanduser("~/.s3cfg")
     if not os.path.exists(s3cfg_path):
         click.echo(
-            "Warning: ~/.s3cfg not found. Run 's3cmd --configure' to set up credentials.",
+            f"Secret '{secret_name}' not found and ~/.s3cfg does not exist.\n"
+            "Options:\n"
+            f"  1. Create secret manually:\n"
+            f"     kubectl create secret generic {secret_name} \\\n"
+            f"       --from-literal=AWS_ACCESS_KEY_ID=... \\\n"
+            f"       --from-literal=AWS_SECRET_ACCESS_KEY=...\n"
+            "  2. Configure s3cmd: s3cmd --configure",
             err=True,
         )
         return False
 
-    # Check if secret already exists
-    cmd = ["kubectl", "get", "secret", "cw-credentials"]
-    if namespace is not None:
-        cmd.extend(["-n", namespace])
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-    )
-    if result.returncode == 0:
-        return True  # Already exists
-
-    # Parse ~/.s3cfg
-    config = configparser.ConfigParser()
-    config.read(s3cfg_path)
-
-    try:
-        access_key = config.get("default", "access_key")
-        secret_key = config.get("default", "secret_key")
-    except (configparser.NoSectionError, configparser.NoOptionError) as e:
-        click.echo(f"Warning: Could not read credentials from ~/.s3cfg: {e}", err=True)
+    # Step 3: Parse credentials (try [namespace] -> [marimo] -> [default])
+    access_key, secret_key, section = parse_s3_credentials(s3cfg_path, namespace)
+    if not access_key or not secret_key:
+        sections_tried = f"[{namespace}], " if namespace else ""
+        click.echo(
+            f"Could not read credentials from ~/.s3cfg.\n"
+            f"Tried sections: {sections_tried}[marimo], [default]",
+            err=True,
+        )
         return False
 
-    # Create secret
+    # Step 4: Show what we're about to do
+    click.echo(f"\nS3 Credentials:")
+    click.echo(f"  Namespace:    {ns_display}")
+    click.echo(f"  Secret:       {secret_name} (will create)")
+    click.echo(f"  Source:       ~/.s3cfg [{section}]")
+    click.echo(f"  Access Key:   ***")
+
+    # Step 5: Confirm with user if in interactive terminal
+    if sys.stdin.isatty():
+        if not click.confirm(f"\nCreate secret '{secret_name}'?"):
+            click.echo("Secret creation skipped.")
+            return False
+
+    # Step 6: Create the secret
     cmd = [
         "kubectl",
         "create",
         "secret",
         "generic",
-        "cw-credentials",
+        secret_name,
         f"--from-literal=AWS_ACCESS_KEY_ID={access_key}",
         f"--from-literal=AWS_SECRET_ACCESS_KEY={secret_key}",
     ]
@@ -78,12 +154,12 @@ def ensure_cw_credentials(namespace: str | None) -> bool:
     )
     if result.returncode != 0:
         click.echo(
-            f"Warning: Failed to create cw-credentials secret: {result.stderr}",
+            f"Failed to create secret: {result.stderr}",
             err=True,
         )
         return False
 
-    click.echo(f"Created cw-credentials secret in namespace {namespace}")
+    click.echo(f"Created secret '{secret_name}'")
     return True
 
 

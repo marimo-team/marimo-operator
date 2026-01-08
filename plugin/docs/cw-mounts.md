@@ -113,6 +113,79 @@ kubectl create secret generic cw-credentials \
   --from-literal=AWS_SECRET_ACCESS_KEY=cwXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
 ```
 
+### Multi-Tenancy
+
+Secrets are namespace-scoped in Kubernetes. For multi-tenant clusters:
+
+1. Each team gets their own namespace
+2. Create `cw-credentials` in each namespace with team-specific S3 tokens
+3. The operator automatically uses the secret from the MarimoNotebook's namespace
+
+Example setup for two teams:
+
+```bash
+# Team Alpha - their own S3 token
+kubectl create secret generic cw-credentials -n team-alpha \
+  --from-literal=AWS_ACCESS_KEY_ID=TEAM_ALPHA_KEY \
+  --from-literal=AWS_SECRET_ACCESS_KEY=TEAM_ALPHA_SECRET
+
+# Team Beta - different S3 token
+kubectl create secret generic cw-credentials -n team-beta \
+  --from-literal=AWS_ACCESS_KEY_ID=TEAM_BETA_KEY \
+  --from-literal=AWS_SECRET_ACCESS_KEY=TEAM_BETA_SECRET
+```
+
+For RBAC lockdown, limit each team's Role to only access secrets in their namespace. The plugin prompts for confirmation in interactive terminals before creating secrets; in CI/CD (non-TTY) it creates automatically.
+
+### Secret Persistence
+
+Once created, the `cw-credentials` secret persists in the namespace until explicitly deleted. The plugin will reuse an existing secret without prompting.
+
+To update credentials (e.g., after rotating tokens):
+
+```bash
+# Delete the existing secret
+kubectl delete secret cw-credentials -n <namespace>
+
+# The plugin will prompt to create a new one on next deploy
+kubectl marimo edit --source=cw://bucket notebook.py
+```
+
+Or replace directly:
+
+```bash
+kubectl delete secret cw-credentials -n <namespace>
+kubectl create secret generic cw-credentials -n <namespace> \
+  --from-literal=AWS_ACCESS_KEY_ID=NEW_KEY \
+  --from-literal=AWS_SECRET_ACCESS_KEY=NEW_SECRET
+```
+
+### Credential Section Priority
+
+The plugin reads credentials from `~/.s3cfg`, trying sections in order:
+
+1. `[namespace]` - if deploying to a specific namespace (e.g., `[team-alpha]`)
+2. `[marimo]` - marimo-specific credentials
+3. `[default]` - standard s3cmd credentials
+
+This allows namespace-specific or marimo-specific credentials:
+
+```ini
+[default]
+access_key = GENERAL_KEY
+secret_key = GENERAL_SECRET
+
+[marimo]
+access_key = MARIMO_KEY
+secret_key = MARIMO_SECRET
+
+[team-alpha]
+access_key = TEAM_ALPHA_KEY
+secret_key = TEAM_ALPHA_SECRET
+```
+
+When deploying with `kubectl marimo edit -n team-alpha ...`, the plugin will use `[team-alpha]` credentials if present.
+
 ## Usage
 
 ### URI Format

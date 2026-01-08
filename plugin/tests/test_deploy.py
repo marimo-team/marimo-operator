@@ -4,7 +4,13 @@ import socket
 
 import pytest
 
-from kubectl_marimo.deploy import find_available_port, get_access_token
+from kubectl_marimo.deploy import (
+    check_secret_exists,
+    ensure_cw_credentials,
+    find_available_port,
+    get_access_token,
+    parse_s3_credentials,
+)
 
 
 class TestFindAvailablePort:
@@ -260,3 +266,231 @@ class TestTeardownPrompt:
 
         # Should still attempt teardown
         mock_open_notebook_deps["delete_resource"].assert_called_once()
+
+
+class TestCheckSecretExists:
+    """Tests for check_secret_exists function."""
+
+    def test_returns_true_when_exists(self, mocker):
+        """Returns True when kubectl get secret succeeds."""
+        mock_result = mocker.Mock()
+        mock_result.returncode = 0
+        mocker.patch("subprocess.run", return_value=mock_result)
+
+        assert check_secret_exists("cw-credentials", "default") is True
+
+    def test_returns_false_when_not_exists(self, mocker):
+        """Returns False when kubectl get secret fails."""
+        mock_result = mocker.Mock()
+        mock_result.returncode = 1
+        mocker.patch("subprocess.run", return_value=mock_result)
+
+        assert check_secret_exists("cw-credentials", "default") is False
+
+    def test_includes_namespace_flag(self, mocker):
+        """Includes -n flag when namespace provided."""
+        mock_result = mocker.Mock()
+        mock_result.returncode = 0
+        mock_run = mocker.patch("subprocess.run", return_value=mock_result)
+
+        check_secret_exists("cw-credentials", "my-namespace")
+
+        cmd = mock_run.call_args[0][0]
+        assert "-n" in cmd
+        assert "my-namespace" in cmd
+
+    def test_no_namespace_flag_when_none(self, mocker):
+        """Omits -n flag when namespace is None."""
+        mock_result = mocker.Mock()
+        mock_result.returncode = 0
+        mock_run = mocker.patch("subprocess.run", return_value=mock_result)
+
+        check_secret_exists("cw-credentials", None)
+
+        cmd = mock_run.call_args[0][0]
+        assert "-n" not in cmd
+
+
+class TestParseS3Credentials:
+    """Tests for parse_s3_credentials function."""
+
+    def test_namespace_section_first(self, tmp_path):
+        """Namespace section takes priority over marimo and default."""
+        s3cfg = tmp_path / ".s3cfg"
+        s3cfg.write_text("""
+[default]
+access_key = DEFAULT_KEY
+secret_key = DEFAULT_SECRET
+
+[marimo]
+access_key = MARIMO_KEY
+secret_key = MARIMO_SECRET
+
+[team-alpha]
+access_key = ALPHA_KEY
+secret_key = ALPHA_SECRET
+""")
+        access, secret, section = parse_s3_credentials(str(s3cfg), "team-alpha")
+        assert access == "ALPHA_KEY"
+        assert secret == "ALPHA_SECRET"
+        assert section == "team-alpha"
+
+    def test_marimo_section_over_default(self, tmp_path):
+        """[marimo] section takes priority over [default]."""
+        s3cfg = tmp_path / ".s3cfg"
+        s3cfg.write_text("""
+[default]
+access_key = DEFAULT_KEY
+secret_key = DEFAULT_SECRET
+
+[marimo]
+access_key = MARIMO_KEY
+secret_key = MARIMO_SECRET
+""")
+        access, secret, section = parse_s3_credentials(str(s3cfg))
+        assert access == "MARIMO_KEY"
+        assert secret == "MARIMO_SECRET"
+        assert section == "marimo"
+
+    def test_falls_back_to_default(self, tmp_path):
+        """Falls back to [default] when [marimo] not present."""
+        s3cfg = tmp_path / ".s3cfg"
+        s3cfg.write_text("""
+[default]
+access_key = DEFAULT_KEY
+secret_key = DEFAULT_SECRET
+""")
+        access, secret, section = parse_s3_credentials(str(s3cfg))
+        assert access == "DEFAULT_KEY"
+        assert secret == "DEFAULT_SECRET"
+        assert section == "default"
+
+    def test_returns_none_when_no_valid_section(self, tmp_path):
+        """Returns (None, None, None) when no valid section found."""
+        s3cfg = tmp_path / ".s3cfg"
+        s3cfg.write_text("""
+[other]
+key = value
+""")
+        access, secret, section = parse_s3_credentials(str(s3cfg))
+        assert access is None
+        assert secret is None
+        assert section is None
+
+    def test_skips_incomplete_section(self, tmp_path):
+        """Skips sections missing required keys."""
+        s3cfg = tmp_path / ".s3cfg"
+        s3cfg.write_text("""
+[marimo]
+access_key = MARIMO_KEY
+# missing secret_key
+
+[default]
+access_key = DEFAULT_KEY
+secret_key = DEFAULT_SECRET
+""")
+        access, secret, section = parse_s3_credentials(str(s3cfg))
+        assert access == "DEFAULT_KEY"
+        assert section == "default"
+
+
+class TestEnsureCwCredentials:
+    """Tests for ensure_cw_credentials function."""
+
+    def test_returns_true_when_secret_exists(self, mocker):
+        """Returns True immediately when secret already exists."""
+        mocker.patch("kubectl_marimo.deploy.check_secret_exists", return_value=True)
+        mocker.patch("kubectl_marimo.deploy.click.echo")
+
+        result = ensure_cw_credentials("default")
+
+        assert result is True
+
+    def test_returns_false_when_no_s3cfg(self, mocker, tmp_path):
+        """Returns False when secret missing and no ~/.s3cfg."""
+        mocker.patch("kubectl_marimo.deploy.check_secret_exists", return_value=False)
+        mocker.patch("os.path.expanduser", return_value=str(tmp_path / "nonexistent"))
+        mock_echo = mocker.patch("kubectl_marimo.deploy.click.echo")
+
+        result = ensure_cw_credentials("default")
+
+        assert result is False
+        # Should show helpful message
+        echo_calls = str(mock_echo.call_args_list)
+        assert "not found" in echo_calls or "does not exist" in echo_calls
+
+    def test_creates_secret_in_non_tty(self, mocker, tmp_path):
+        """Creates secret automatically in non-TTY (CI/CD) mode."""
+        mocker.patch("kubectl_marimo.deploy.check_secret_exists", return_value=False)
+        s3cfg = tmp_path / ".s3cfg"
+        s3cfg.write_text("""
+[default]
+access_key = TEST_KEY
+secret_key = TEST_SECRET
+""")
+        mocker.patch("os.path.expanduser", return_value=str(s3cfg))
+        mocker.patch("os.path.exists", return_value=True)
+        mocker.patch("sys.stdin.isatty", return_value=False)
+        mocker.patch("kubectl_marimo.deploy.click.echo")
+
+        mock_result = mocker.Mock()
+        mock_result.returncode = 0
+        mock_run = mocker.patch("subprocess.run", return_value=mock_result)
+
+        result = ensure_cw_credentials("default")
+
+        assert result is True
+        # Should have called kubectl create secret
+        create_calls = [c for c in mock_run.call_args_list if "create" in str(c)]
+        assert len(create_calls) > 0
+
+    def test_prompts_in_tty_mode(self, mocker, tmp_path):
+        """Prompts for confirmation in interactive TTY mode."""
+        mocker.patch("kubectl_marimo.deploy.check_secret_exists", return_value=False)
+        s3cfg = tmp_path / ".s3cfg"
+        s3cfg.write_text("""
+[default]
+access_key = TEST_KEY
+secret_key = TEST_SECRET
+""")
+        mocker.patch("os.path.expanduser", return_value=str(s3cfg))
+        mocker.patch("os.path.exists", return_value=True)
+        mocker.patch("sys.stdin.isatty", return_value=True)
+        mocker.patch("kubectl_marimo.deploy.click.echo")
+        mock_confirm = mocker.patch(
+            "kubectl_marimo.deploy.click.confirm", return_value=False
+        )
+
+        result = ensure_cw_credentials("default")
+
+        assert result is False  # User declined
+        mock_confirm.assert_called_once()
+
+    def test_uses_namespace_for_section_lookup(self, mocker, tmp_path):
+        """Uses namespace as section name when parsing credentials."""
+        mocker.patch("kubectl_marimo.deploy.check_secret_exists", return_value=False)
+        s3cfg = tmp_path / ".s3cfg"
+        s3cfg.write_text("""
+[default]
+access_key = DEFAULT_KEY
+secret_key = DEFAULT_SECRET
+
+[team-alpha]
+access_key = ALPHA_KEY
+secret_key = ALPHA_SECRET
+""")
+        mocker.patch("os.path.expanduser", return_value=str(s3cfg))
+        mocker.patch("os.path.exists", return_value=True)
+        mocker.patch("sys.stdin.isatty", return_value=False)
+        mock_echo = mocker.patch("kubectl_marimo.deploy.click.echo")
+
+        mock_result = mocker.Mock()
+        mock_result.returncode = 0
+        mock_run = mocker.patch("subprocess.run", return_value=mock_result)
+
+        ensure_cw_credentials("team-alpha")
+
+        # Should use team-alpha credentials
+        create_call = [c for c in mock_run.call_args_list if "create" in str(c)][0]
+        cmd_str = str(create_call)
+        assert "ALPHA_KEY" in cmd_str
