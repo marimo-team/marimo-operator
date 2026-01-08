@@ -206,14 +206,14 @@ cw://bucket[/path][:mount_point]
 kubectl marimo edit notebook.py --source=cw://my-notebook-data
 ```
 
-### Via Frontmatter
+### Via Header
 
 ```python
 # /// script
 # dependencies = ["marimo"]
-# ///
 # [tool.marimo.k8s]
 # mounts = ["cw://my-notebook-data"]
+# ///
 ```
 
 ### Access in Notebook
