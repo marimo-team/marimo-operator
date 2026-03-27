@@ -19,6 +19,7 @@ package controller
 import (
 	"context"
 	"crypto/sha256"
+	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -186,6 +187,9 @@ func (r *MarimoNotebookReconciler) reconcilePVC(ctx context.Context, notebook *m
 func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook) (*corev1.Pod, error) {
 	logger := logf.FromContext(ctx)
 	desired := resources.BuildPod(notebook)
+
+	podJSON, _ := json.Marshal(desired)
+	logger.V(1).Info("Desired pod spec", "pod", string(podJSON))
 
 	// Set owner reference for automatic garbage collection
 	if err := controllerutil.SetControllerReference(notebook, desired, r.Scheme); err != nil {
