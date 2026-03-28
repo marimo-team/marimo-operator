@@ -775,6 +775,9 @@ spec:
                       if empty)
                     type: string
                 type: object
+                x-kubernetes-validations:
+                - message: storage is immutable
+                  rule: self == oldSelf
             type: object
             x-kubernetes-validations:
             - message: storage is required when sidecars are specified

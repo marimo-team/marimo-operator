@@ -106,6 +106,7 @@ type MarimoNotebookSpec struct {
 
 	// Storage configures persistent storage for notebooks
 	// +optional
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="storage is immutable"
 	Storage *StorageSpec `json:"storage,omitempty"`
 
 	// Resources for the marimo container

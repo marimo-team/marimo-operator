@@ -371,27 +371,34 @@ var _ = Describe("MarimoNotebook Controller", func() {
 	})
 
 	Context("When updating a MarimoNotebook", func() {
-		It("should update Service ports when a sidecar with a port is added", func() {
-			pausePort := int32(9090)
-			notebook := &marimov1alpha1.MarimoNotebook{
+		var notebook *marimov1alpha1.MarimoNotebook
+		var namespacedName types.NamespacedName
+
+		BeforeEach(func() {
+			notebook = &marimov1alpha1.MarimoNotebook{
 				ObjectMeta: metav1.ObjectMeta{
-					Name:      "test-update-svc-" + randString(),
+					Name:      "test-update-" + randString(),
 					Namespace: "default",
 				},
 				Spec: marimov1alpha1.MarimoNotebookSpec{
-					Source: "https://github.com/marimo-team/marimo.git",
+					Source:  "https://github.com/marimo-team/marimo.git",
+					Storage: &marimov1alpha1.StorageSpec{Size: "1Gi"},
 				},
 			}
-			namespacedName := types.NamespacedName{
+			namespacedName = types.NamespacedName{
 				Name:      notebook.Name,
 				Namespace: notebook.Namespace,
 			}
+		})
 
-			defer func() {
-				_ = k8sClient.Delete(ctx, notebook)
-			}()
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, notebook)
+		})
 
-			By("creating the MarimoNotebook without sidecars")
+		It("should update Service ports when a sidecar with a port is added", func() {
+			pausePort := int32(9090)
+
+			By("creating the MarimoNotebook with storage")
 			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
 
 			By("waiting for Service to be created with only the main port")
@@ -404,7 +411,6 @@ var _ = Describe("MarimoNotebook Controller", func() {
 			By("updating the MarimoNotebook to add a pause sidecar with a container port")
 			nb := &marimov1alpha1.MarimoNotebook{}
 			Expect(k8sClient.Get(ctx, namespacedName, nb)).To(Succeed())
-			nb.Spec.Storage = &marimov1alpha1.StorageSpec{Size: "1Gi"}
 			nb.Spec.Sidecars = []marimov1alpha1.SidecarSpec{
 				{
 					Name:       "pause",
@@ -428,6 +434,17 @@ var _ = Describe("MarimoNotebook Controller", func() {
 			}, timeout, interval).Should(BeTrue(), "Service should expose the pause sidecar port")
 
 			Expect(svc.Spec.Ports).To(HaveLen(2))
+		})
+
+		It("should reject changes to the storage attribute", func() {
+			By("creating the MarimoNotebook with storage")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("attempting to update the storage attribute")
+			nb := &marimov1alpha1.MarimoNotebook{}
+			Expect(k8sClient.Get(ctx, namespacedName, nb)).To(Succeed())
+			nb.Spec.Storage = &marimov1alpha1.StorageSpec{Size: "2Gi"}
+			Expect(k8sClient.Update(ctx, nb)).To(MatchError(ContainSubstring("storage is immutable")))
 		})
 	})
 
