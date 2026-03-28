@@ -538,7 +538,7 @@ func TestBuildPod_WithSidecar(t *testing.T) {
 			Storage: &marimov1alpha1.StorageSpec{
 				Size: "5Gi",
 			},
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
 					Name:  testSSHDContainer,
 					Image: "linuxserver/openssh-server:latest",
@@ -596,11 +596,13 @@ func TestBuildPod_SidecarWithExposePort(t *testing.T) {
 			Storage: &marimov1alpha1.StorageSpec{
 				Size: "5Gi",
 			},
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
-					Name:       testSSHDContainer,
-					Image:      "linuxserver/openssh-server:latest",
-					ExposePort: &port,
+					Name:  testSSHDContainer,
+					Image: "linuxserver/openssh-server:latest",
+					Ports: []corev1.ContainerPort{
+						{Name: testSSHDContainer, ContainerPort: port, Protocol: corev1.ProtocolTCP},
+					},
 				},
 			},
 		},
@@ -635,7 +637,7 @@ func TestBuildPod_SidecarWithEnvCommandArgs(t *testing.T) {
 			Storage: &marimov1alpha1.StorageSpec{
 				Size: "5Gi",
 			},
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
 					Name:  "git-sync",
 					Image: "registry.k8s.io/git-sync/git-sync:v4.2.1",
@@ -687,11 +689,11 @@ func TestBuildPod_SidecarWithResources(t *testing.T) {
 			Storage: &marimov1alpha1.StorageSpec{
 				Size: "5Gi",
 			},
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
 					Name:  "helper",
 					Image: "busybox:latest",
-					Resources: &corev1.ResourceRequirements{
+					Resources: corev1.ResourceRequirements{
 						Requests: corev1.ResourceList{
 							corev1.ResourceCPU:    resource.MustParse("50m"),
 							corev1.ResourceMemory: resource.MustParse("64Mi"),
@@ -739,11 +741,13 @@ func TestBuildPod_MultipleSidecars(t *testing.T) {
 			Storage: &marimov1alpha1.StorageSpec{
 				Size: "5Gi",
 			},
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
-					Name:       testSSHDContainer,
-					Image:      "linuxserver/openssh-server:latest",
-					ExposePort: &sshPort,
+					Name:  testSSHDContainer,
+					Image: "linuxserver/openssh-server:latest",
+					Ports: []corev1.ContainerPort{
+						{Name: testSSHDContainer, ContainerPort: sshPort, Protocol: corev1.ProtocolTCP},
+					},
 				},
 				{
 					Name:  "git-sync",
@@ -855,16 +859,18 @@ def hello():
 
 func TestBuildSidecarContainer(t *testing.T) {
 	port := int32(8080)
-	sidecar := marimov1alpha1.SidecarSpec{
-		Name:       "test-sidecar",
-		Image:      "test-image:latest",
-		ExposePort: &port,
+	sidecar := corev1.Container{
+		Name:  "test-sidecar",
+		Image: "test-image:latest",
+		Ports: []corev1.ContainerPort{
+			{Name: "test-sidecar", ContainerPort: port, Protocol: corev1.ProtocolTCP},
+		},
 		Env: []corev1.EnvVar{
 			{Name: "FOO", Value: "bar"},
 		},
 		Command: []string{"/bin/sh"},
 		Args:    []string{"-c", "echo hello"},
-		Resources: &corev1.ResourceRequirements{
+		Resources: corev1.ResourceRequirements{
 			Limits: corev1.ResourceList{
 				corev1.ResourceMemory: resource.MustParse("256Mi"),
 			},
@@ -1429,11 +1435,13 @@ func TestBuildPod_SSHFSSidecar_SecretMount(t *testing.T) {
 			Port:    2718,
 			Content: ptrString("# test notebook"),
 			Storage: &marimov1alpha1.StorageSpec{Size: "1Gi"},
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
-					Name:       "sshfs-0",
-					Image:      "linuxserver/openssh-server:latest",
-					ExposePort: &port,
+					Name:  "sshfs-0",
+					Image: "linuxserver/openssh-server:latest",
+					Ports: []corev1.ContainerPort{
+						{Name: "sshfs-0", ContainerPort: port, Protocol: corev1.ProtocolTCP},
+					},
 				},
 			},
 		},

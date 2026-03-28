@@ -207,7 +207,7 @@ class TestBuildMarimoNotebook:
         assert len(resource["spec"]["sidecars"]) == 1
         sidecar = resource["spec"]["sidecars"][0]
         assert sidecar["name"] == "sshfs-0"
-        assert sidecar["exposePort"] == 2222
+        assert sidecar["ports"][0]["containerPort"] == 2222
         # Should return sshfs mount info
         assert len(sshfs_mounts) == 1
         remote_path, local_mount = sshfs_mounts[0]
@@ -368,7 +368,7 @@ class TestBuildSshSidecar:
     def test_basic(self):
         sidecar = build_ssh_sidecar(0)
         assert sidecar["name"] == "sshfs-0"
-        assert sidecar["exposePort"] == 2222
+        assert sidecar["ports"][0]["containerPort"] == 2222
         assert any(
             e["name"] == "PASSWORD_ACCESS" and e["value"] == "false"
             for e in sidecar["env"]

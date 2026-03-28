@@ -79,7 +79,9 @@ spec:
   sidecars:
     - name: sshd
       image: linuxserver/openssh-server:latest
-      exposePort: 2222
+      ports:
+        - name: ssh
+          containerPort: 2222
       env:
         - name: PASSWORD_ACCESS
           value: "true"
@@ -96,7 +98,7 @@ spec:
           value: https://github.com/user/notebooks.git
 ```
 
-The `exposePort` field adds the port to the Service for external access.
+The `ports` will automatically be added to the Service for external access.
 
 ### MarimoNotebookStatus
 
@@ -116,7 +118,7 @@ The `exposePort` field adds the port to the Service for external access.
 1. **Validate Spec**: Ensure `source` is set
 2. **Ensure PVC**: Create if `storage` is specified (no owner reference)
 3. **Ensure Pod**: Create with init container (clones source), marimo container, sidecars
-4. **Ensure Service**: Expose marimo port and sidecar `exposePort`s
+4. **Ensure Service**: Expose marimo port and sidecar container ports
 5. **Update Status**: Set phase, URL, source hash, conditions
 
 ### Pod Structure

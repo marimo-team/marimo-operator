@@ -293,12 +293,12 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	}
 }
 
-// buildSidecarContainer creates a container spec from a SidecarSpec.
+// buildSidecarContainer augments a sidecar container with shared volume mounts.
 // Sidecars share the PVC volume with the main marimo container.
 // FUSE-based sidecars (with privileged security context) get Bidirectional mount propagation.
 // SSHFS sidecars (name starts with "sshfs-") get the ssh-pubkey secret mounted.
-func buildSidecarContainer(sidecar marimov1alpha1.SidecarSpec, volumeMounts []corev1.VolumeMount) corev1.Container {
-	// Copy volume mounts so we can modify them for this container
+func buildSidecarContainer(sidecar corev1.Container, volumeMounts []corev1.VolumeMount) corev1.Container {
+	// Build shared mounts, optionally with FUSE propagation
 	sidecarMounts := make([]corev1.VolumeMount, len(volumeMounts))
 	copy(sidecarMounts, volumeMounts)
 
@@ -323,37 +323,9 @@ func buildSidecarContainer(sidecar marimov1alpha1.SidecarSpec, volumeMounts []co
 		})
 	}
 
-	container := corev1.Container{
-		Name:         sidecar.Name,
-		Image:        sidecar.Image,
-		Env:          sidecar.Env,
-		Command:      sidecar.Command,
-		Args:         sidecar.Args,
-		VolumeMounts: sidecarMounts, // Share PVC volume (with propagation if FUSE)
-	}
-
-	// Add port if ExposePort is set
-	if sidecar.ExposePort != nil {
-		container.Ports = []corev1.ContainerPort{
-			{
-				Name:          sidecar.Name,
-				ContainerPort: *sidecar.ExposePort,
-				Protocol:      corev1.ProtocolTCP,
-			},
-		}
-	}
-
-	// Add resources if specified
-	if sidecar.Resources != nil {
-		container.Resources = *sidecar.Resources
-	}
-
-	// Add security context if specified (needed for FUSE-based mounts)
-	if sidecar.SecurityContext != nil {
-		container.SecurityContext = sidecar.SecurityContext
-	}
-
-	return container
+	// Prepend shared mounts; user-specified mounts from the container spec follow
+	sidecar.VolumeMounts = append(sidecarMounts, sidecar.VolumeMounts...)
+	return sidecar
 }
 
 // buildResourceRequirements converts ResourcesSpec to corev1.ResourceRequirements.
@@ -426,8 +398,8 @@ func parseCWMountURI(uri string) (bucket, subpath, mountPoint string) {
 //
 // Note: sshfs:// and rsync:// mounts are handled by the kubectl-marimo plugin,
 // not the operator. The plugin adds explicit sidecar specs to the CRD.
-func expandMounts(mounts []string) []marimov1alpha1.SidecarSpec {
-	var sidecars []marimov1alpha1.SidecarSpec
+func expandMounts(mounts []string) []corev1.Container {
+	var sidecars []corev1.Container
 
 	for i, mount := range mounts {
 		if strings.HasPrefix(mount, "cw://") {
@@ -449,7 +421,7 @@ const CWCredentialsSecret = "cw-credentials"
 // URI format: cw://bucket[/path][:mount]
 // Credentials from cw-credentials secret (auto-created by kubectl-marimo plugin).
 // Endpoint from S3_ENDPOINT env var (default: https://cwobject.com).
-func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
+func buildCWSidecar(uri string, index int) *corev1.Container {
 	bucket, subpath, customMount := parseCWMountURI(uri)
 	if bucket == "" {
 		return nil
@@ -468,7 +440,7 @@ func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 		remotePath = bucket + ":/" + subpath
 	}
 
-	return &marimov1alpha1.SidecarSpec{
+	return &corev1.Container{
 		Name:    mountName,
 		Image:   config.S3FSImage,
 		Command: []string{"sh", "-c"},

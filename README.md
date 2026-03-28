@@ -129,7 +129,9 @@ spec:
     # SSH for remote access
     - name: ssh
       image: linuxserver/openssh-server:latest
-      exposePort: 2222
+      ports:
+        - name: ssh
+          containerPort: 2222
       env:
         - name: PASSWORD_ACCESS
           value: "true"
@@ -149,7 +151,7 @@ spec:
 | **SSH** | `linuxserver/openssh-server` | Remote shell, rsync, SSHFS mount |
 | **Git Sync** | `registry.k8s.io/git-sync` | Bidirectional repo synchronization |
 
-The `exposePort` field adds the port to the Service for external access.
+The `ports` will automatically be added to the Service for external access.
 
 ### GPU Support
 

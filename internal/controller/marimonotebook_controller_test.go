@@ -292,7 +292,6 @@ var _ = Describe("MarimoNotebook Controller", func() {
 
 	Context("When creating a MarimoNotebook with sidecars", func() {
 		It("should create Pod with sidecar containers", func() {
-			sshPort := int32(22)
 			notebook := &marimov1alpha1.MarimoNotebook{
 				ObjectMeta: metav1.ObjectMeta{
 					Name:      "test-sidecar-" + randString(),
@@ -303,11 +302,13 @@ var _ = Describe("MarimoNotebook Controller", func() {
 					Storage: &marimov1alpha1.StorageSpec{
 						Size: "1Gi",
 					},
-					Sidecars: []marimov1alpha1.SidecarSpec{
+					Sidecars: []corev1.Container{
 						{
-							Name:       "sshd",
-							Image:      "linuxserver/openssh-server:latest",
-							ExposePort: &sshPort,
+							Name:  "sshd",
+							Image: "linuxserver/openssh-server:latest",
+							Ports: []corev1.ContainerPort{
+								{Name: "sshd", ContainerPort: 22, Protocol: corev1.ProtocolTCP},
+							},
 							Env: []corev1.EnvVar{
 								{Name: "PASSWORD_ACCESS", Value: "true"},
 							},
@@ -337,10 +338,6 @@ var _ = Describe("MarimoNotebook Controller", func() {
 			Expect(pod.Spec.Containers[0].Name).To(Equal("marimo"))
 			Expect(pod.Spec.Containers[1].Name).To(Equal("sshd"))
 			Expect(pod.Spec.Containers[1].Image).To(Equal("linuxserver/openssh-server:latest"))
-
-			By("checking sidecar has port exposed")
-			Expect(pod.Spec.Containers[1].Ports).To(HaveLen(1))
-			Expect(pod.Spec.Containers[1].Ports[0].ContainerPort).To(Equal(int32(22)))
 
 			By("checking sidecar has env vars")
 			var foundEnv bool
