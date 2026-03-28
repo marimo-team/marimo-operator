@@ -436,6 +436,42 @@ var _ = Describe("MarimoNotebook Controller", func() {
 			Expect(svc.Spec.Ports).To(HaveLen(2))
 		})
 
+		It("should recreate Pod when env vars are changed", func() {
+			By("creating the MarimoNotebook")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("waiting for initial Pod to be created")
+			pod := &corev1.Pod{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, pod)
+			}, timeout, interval).Should(Succeed())
+			originalUID := pod.UID
+
+			By("updating the notebook to add an env var")
+			nb := &marimov1alpha1.MarimoNotebook{}
+			Expect(k8sClient.Get(ctx, namespacedName, nb)).To(Succeed())
+			nb.Spec.Env = []corev1.EnvVar{
+				{Name: "MY_VAR", Value: "hello"},
+			}
+			Expect(k8sClient.Update(ctx, nb)).To(Succeed())
+
+			By("verifying Pod is recreated with the new env var")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, namespacedName, pod); err != nil {
+					return false
+				}
+				if pod.UID == originalUID {
+					return false // still the old pod
+				}
+				for _, env := range pod.Spec.Containers[0].Env {
+					if env.Name == "MY_VAR" && env.Value == "hello" {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "Pod should be recreated with MY_VAR env var")
+		})
+
 		It("should reject changes to the storage attribute", func() {
 			By("creating the MarimoNotebook with storage")
 			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())

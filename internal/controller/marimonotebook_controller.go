@@ -197,6 +197,13 @@ func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *m
 		return nil, err
 	}
 
+	// Compute hash of desired pod spec for change detection
+	specHash := resources.PodSpecHash(desired)
+	if desired.Annotations == nil {
+		desired.Annotations = make(map[string]string)
+	}
+	desired.Annotations[resources.PodSpecHashAnnotation] = specHash
+
 	// Check if Pod exists
 	existing := &corev1.Pod{}
 	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
@@ -218,7 +225,16 @@ func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *m
 		return nil, err
 	}
 
-	// Pod exists - we don't update running pods (recreate strategy)
+	// Pod exists - check if spec has changed and recreate if so
+	if existingHash := existing.Annotations[resources.PodSpecHashAnnotation]; existingHash != specHash {
+		logger.Info("Pod spec changed, recreating", "name", existing.Name)
+		if err := r.Delete(ctx, existing); err != nil && !k8serrors.IsNotFound(err) {
+			return nil, err
+		}
+		// Pod deleted - next reconcile will create the updated pod
+		return nil, nil
+	}
+
 	return existing, nil
 }
 
