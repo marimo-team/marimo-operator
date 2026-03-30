@@ -310,6 +310,9 @@ func TestBuildPod_PodOverrides(t *testing.T) {
 	if pod.Spec.NodeSelector["gpu"] != "true" {
 		t.Errorf("expected nodeSelector gpu='true', got '%s'", pod.Spec.NodeSelector["gpu"])
 	}
+	if pod.Spec.Containers == nil {
+		t.Errorf("expected overrides not to touch container")
+	}
 }
 
 func TestBuildPod_CustomPort(t *testing.T) {

@@ -17,6 +17,14 @@ A Kubernetes operator for deploying [marimo](https://github.com/marimo-team/mari
 
 ## Installation
 
+### Supported Architectures
+
+The operator and s3fs images are built for multiple architectures:
+- **linux/amd64** (x86_64)
+- **linux/arm64** (aarch64)
+
+Docker will automatically pull the correct image for your platform.
+
 ```bash
 # Option 1: Install from single manifest
 kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/main/deploy/install.yaml

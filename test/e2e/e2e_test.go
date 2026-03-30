@@ -441,6 +441,49 @@ spec:
 			_, _ = utils.Run(cmd)
 		})
 
+		It("should add volumes from podOverrides", func() {
+			notebookName := "e2e-pod-overrides"
+
+			By("creating a MarimoNotebook with podOverrides volumes")
+			notebookYAML := fmt.Sprintf(`
+apiVersion: marimo.io/v1alpha1
+kind: MarimoNotebook
+metadata:
+  name: %s
+  namespace: %s
+spec:
+  source: "https://github.com/marimo-team/marimo.git"
+  podOverrides:
+    volumes:
+      - name: ssh-pubkey
+        secret:
+          secretName: ssh-pubkey
+          defaultMode: 0600
+`, notebookName, testNamespace)
+
+			yamlFile := filepath.Join("/tmp", notebookName+".yaml")
+			err := os.WriteFile(yamlFile, []byte(notebookYAML), 0644)
+			Expect(err).NotTo(HaveOccurred())
+
+			cmd := exec.Command("kubectl", "apply", "-f", yamlFile)
+			_, err = utils.Run(cmd)
+			Expect(err).NotTo(HaveOccurred(), "Failed to create MarimoNotebook")
+
+			By("verifying Pod has the overridden volume")
+			verifyVolumePresent := func(g Gomega) {
+				cmd := exec.Command("kubectl", "get", "pod", notebookName, "-n", testNamespace,
+					"-o", `jsonpath={.spec.volumes[?(@.name=="ssh-pubkey")].secret.secretName}`)
+				output, err := utils.Run(cmd)
+				g.Expect(err).NotTo(HaveOccurred())
+				g.Expect(output).To(Equal("ssh-pubkey"))
+			}
+			Eventually(verifyVolumePresent, 2*time.Minute, time.Second).Should(Succeed())
+
+			By("cleaning up")
+			cmd = exec.Command("kubectl", "delete", "marimo", notebookName, "-n", testNamespace)
+			_, _ = utils.Run(cmd)
+		})
+
 		It("should create sidecar containers with exposed ports", func() {
 			notebookName := "e2e-sidecar"
 
