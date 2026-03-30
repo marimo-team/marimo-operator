@@ -378,13 +378,25 @@ func applyPodOverrides(base, overrides corev1.PodSpec) corev1.PodSpec {
 		return base
 	}
 
+	// We diff overrides against an empty PodSpec to produce a patch containing only
+	// fields the user explicitly set (avoiding null fields from zero-value slices/maps
+	// that would otherwise wipe out base fields like Containers).
+	emptyJSON, err := json.Marshal(corev1.PodSpec{})
+	if err != nil {
+		return base
+	}
+	patch, err := strategicpatch.CreateTwoWayMergePatch(emptyJSON, overridesJSON, corev1.PodSpec{})
+	if err != nil {
+		return base
+	}
+
 	patchMeta, err := strategicpatch.NewPatchMetaFromStruct(&corev1.PodSpec{})
 	if err != nil {
 		return base
 	}
 
 	merged, err := strategicpatch.StrategicMergePatchUsingLookupPatchMeta(
-		baseJSON, overridesJSON, patchMeta)
+		baseJSON, patch, patchMeta)
 	if err != nil {
 		return base
 	}
