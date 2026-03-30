@@ -369,6 +369,20 @@ func buildResourceRequirements(spec *marimov1alpha1.ResourcesSpec) corev1.Resour
 
 // applyPodOverrides merges overrides into base using strategic merge patch.
 func applyPodOverrides(base, overrides corev1.PodSpec) corev1.PodSpec {
+	// Clear empty slices to prevent them from replacing base values.
+	// In strategic merge, empty slice [] means "replace with empty",
+	// while nil means "don't touch". When podOverrides is deserialized
+	// from YAML/JSON, absent fields become empty slices, not nil.
+	if len(overrides.Containers) == 0 {
+		overrides.Containers = nil
+	}
+	if len(overrides.InitContainers) == 0 {
+		overrides.InitContainers = nil
+	}
+	if len(overrides.Volumes) == 0 {
+		overrides.Volumes = nil
+	}
+
 	baseJSON, err := json.Marshal(base)
 	if err != nil {
 		return base

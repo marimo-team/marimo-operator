@@ -64,7 +64,7 @@ class TestResourceName:
 
 class TestBuildMarimoNotebook:
     def test_basic(self):
-        resource, rsync_mounts, sshfs_mounts = build_marimo_notebook(
+        resource, rsync_mounts, sshfs_mounts, warnings = build_marimo_notebook(
             name="test-notebook",
             namespace="default",
             content="# test content",
@@ -80,9 +80,10 @@ class TestBuildMarimoNotebook:
         assert resource["spec"]["storage"]["size"] == "1Gi"
         assert rsync_mounts == []
         assert sshfs_mounts == []
+        assert warnings == []
 
     def test_with_image(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -91,16 +92,16 @@ class TestBuildMarimoNotebook:
         assert resource["spec"]["image"] == "custom:latest"
 
     def test_with_port(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
-            frontmatter={"port": "8080"},
+            frontmatter={"port": 8080},
         )
         assert resource["spec"]["port"] == 8080
 
     def test_with_storage(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -108,8 +109,19 @@ class TestBuildMarimoNotebook:
         )
         assert resource["spec"]["storage"]["size"] == "5Gi"
 
+    def test_with_storage_object(self):
+        """Storage can be passed as full object with storageClassName."""
+        resource, _, _, _ = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"storage": {"size": "10Gi", "storageClassName": "fast-ssd"}},
+        )
+        assert resource["spec"]["storage"]["size"] == "10Gi"
+        assert resource["spec"]["storage"]["storageClassName"] == "fast-ssd"
+
     def test_auth_none(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -117,8 +129,19 @@ class TestBuildMarimoNotebook:
         )
         assert resource["spec"]["auth"] == {}
 
+    def test_auth_object_passthrough(self):
+        """Auth object should pass through when not 'none'."""
+        auth_config = {"password": {"secretKeyRef": {"name": "my-secret", "key": "pw"}}}
+        resource, _, _, _ = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"auth": auth_config},
+        )
+        assert resource["spec"]["auth"] == auth_config
+
     def test_mode_edit(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -127,7 +150,7 @@ class TestBuildMarimoNotebook:
         assert resource["spec"]["mode"] == "edit"
 
     def test_mode_run(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -136,7 +159,7 @@ class TestBuildMarimoNotebook:
         assert resource["spec"]["mode"] == "run"
 
     def test_source_adds_cw_mount(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -145,7 +168,7 @@ class TestBuildMarimoNotebook:
         assert resource["spec"]["mounts"] == ["cw://bucket/data"]
 
     def test_frontmatter_cw_mounts(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -154,7 +177,7 @@ class TestBuildMarimoNotebook:
         assert resource["spec"]["mounts"] == ["cw://bucket1", "cw://bucket2"]
 
     def test_frontmatter_env(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -167,7 +190,7 @@ class TestBuildMarimoNotebook:
         assert debug_var["value"] == "true"
 
     def test_content_none_for_directory(self):
-        resource, _, _ = build_marimo_notebook(
+        resource, _, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content=None,  # Directory mode
@@ -179,7 +202,7 @@ class TestBuildMarimoNotebook:
 
     def test_rsync_mount_filtered(self):
         """Rsync mounts should be returned separately, not in CRD."""
-        resource, rsync_mounts, _ = build_marimo_notebook(
+        resource, rsync_mounts, _, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -196,7 +219,7 @@ class TestBuildMarimoNotebook:
 
     def test_sshfs_mount_adds_sidecar(self):
         """SSHFS mounts should add SSH sidecar and return local mount info."""
-        resource, _, sshfs_mounts = build_marimo_notebook(
+        resource, _, sshfs_mounts, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -215,7 +238,7 @@ class TestBuildMarimoNotebook:
 
     def test_mixed_mount_schemes(self):
         """Mix of mount schemes should be handled correctly."""
-        resource, rsync_mounts, sshfs_mounts = build_marimo_notebook(
+        resource, rsync_mounts, sshfs_mounts, _ = build_marimo_notebook(
             name="test",
             namespace="default",
             content="content",
@@ -236,6 +259,110 @@ class TestBuildMarimoNotebook:
         assert len(rsync_mounts) == 1
         # SSHFS should be separate
         assert len(sshfs_mounts) == 1
+
+    def test_node_selector(self):
+        """nodeSelector should map to podOverrides."""
+        resource, _, _, _ = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={
+                "nodeSelector": {
+                    "compute.coreweave.com/node-pool": "gpu-node-pool",
+                    "gpu": "true",
+                }
+            },
+        )
+        assert "podOverrides" in resource["spec"]
+        assert "nodeSelector" in resource["spec"]["podOverrides"]
+        node_selector = resource["spec"]["podOverrides"]["nodeSelector"]
+        assert node_selector["compute.coreweave.com/node-pool"] == "gpu-node-pool"
+        assert node_selector["gpu"] == "true"
+
+    def test_unknown_field_warning(self):
+        """Unknown frontmatter fields should produce warnings."""
+        resource, _, _, warnings = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"imge": "typo:latest", "unknownField": "value"},
+        )
+        assert len(warnings) == 2
+        assert any("imge" in w for w in warnings)
+        assert any("unknownField" in w for w in warnings)
+        # Typo field should NOT be in spec
+        assert "imge" not in resource["spec"]
+
+    def test_passthrough_resources(self):
+        """Resources should pass through directly."""
+        resources_config = {
+            "requests": {"cpu": "1", "memory": "2Gi"},
+            "limits": {"cpu": "2", "memory": "4Gi", "nvidia.com/gpu": "1"},
+        }
+        resource, _, _, _ = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"resources": resources_config},
+        )
+        assert resource["spec"]["resources"] == resources_config
+
+    def test_passthrough_sidecars(self):
+        """Sidecars should pass through directly."""
+        sidecars_config = [
+            {"name": "helper", "image": "busybox:latest"},
+        ]
+        resource, _, _, _ = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"sidecars": sidecars_config},
+        )
+        assert resource["spec"]["sidecars"] == sidecars_config
+
+    def test_sidecars_merge_with_sshfs(self):
+        """User sidecars should merge with auto-generated SSH sidecars."""
+        resource, _, sshfs_mounts, _ = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"sidecars": [{"name": "helper", "image": "busybox"}]},
+            source="sshfs:///data",
+        )
+        # Should have both user sidecar and SSH sidecar
+        assert len(resource["spec"]["sidecars"]) == 2
+        names = [s["name"] for s in resource["spec"]["sidecars"]]
+        assert "helper" in names
+        assert "sshfs-0" in names
+
+    def test_passthrough_podOverrides(self):
+        """podOverrides should pass through directly."""
+        pod_overrides = {
+            "nodeSelector": {"zone": "us-east"},
+            "tolerations": [{"key": "gpu", "effect": "NoSchedule"}],
+        }
+        resource, _, _, _ = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={"podOverrides": pod_overrides},
+        )
+        assert resource["spec"]["podOverrides"] == pod_overrides
+
+    def test_nodeSelector_merges_with_podOverrides(self):
+        """nodeSelector should merge into existing podOverrides."""
+        resource, _, _, _ = build_marimo_notebook(
+            name="test",
+            namespace="default",
+            content="content",
+            frontmatter={
+                "podOverrides": {"tolerations": [{"key": "gpu"}]},
+                "nodeSelector": {"zone": "us-east"},
+            },
+        )
+        # Both should be present
+        assert resource["spec"]["podOverrides"]["tolerations"] == [{"key": "gpu"}]
+        assert resource["spec"]["podOverrides"]["nodeSelector"] == {"zone": "us-east"}
 
 
 class TestParseEnv:

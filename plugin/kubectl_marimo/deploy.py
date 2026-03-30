@@ -443,7 +443,7 @@ def deploy_notebook(
         name = resource_name(file_path, frontmatter)
 
     # Build resource (separates local mounts from remote)
-    resource, rsync_mounts, sshfs_mounts = build_marimo_notebook(
+    resource, rsync_mounts, sshfs_mounts, warnings = build_marimo_notebook(
         name=name,
         namespace=namespace,
         content=content,
@@ -451,6 +451,10 @@ def deploy_notebook(
         mode=mode,
         source=source,
     )
+
+    # Show warnings about unknown fields or other issues
+    for warning in warnings:
+        click.echo(click.style(f"Warning: {warning}", fg="yellow"), err=True)
 
     if dry_run:
         click.echo(to_yaml(resource))
