@@ -4,6 +4,8 @@ import subprocess
 import sys
 from typing import Any
 
+import click
+
 
 def apply_resource(resource: dict[str, Any], dry_run: bool = False) -> bool:
     """Apply a Kubernetes resource using kubectl.
@@ -27,12 +29,26 @@ def apply_resource(resource: dict[str, Any], dry_run: bool = False) -> bool:
             text=True,
         )
         if result.returncode != 0:
-            print(f"Error: {result.stderr}", file=sys.stderr)
+            stderr = result.stderr
+            # Format CRD validation errors nicely
+            if "is invalid:" in stderr:
+                click.echo(
+                    click.style("Invalid notebook configuration:", fg="red"),
+                    err=True,
+                )
+                for line in stderr.split("\n"):
+                    line = line.strip()
+                    if "spec." in line or "metadata." in line:
+                        click.echo(f"  • {line}", err=True)
+                    elif line and "Error from server" not in line:
+                        click.echo(f"  {line}", err=True)
+            else:
+                click.echo(click.style(f"Error: {stderr}", fg="red"), err=True)
             return False
         print(result.stdout, end="")
         return True
     except FileNotFoundError:
-        print("Error: kubectl not found in PATH", file=sys.stderr)
+        click.echo(click.style("Error: kubectl not found in PATH", fg="red"), err=True)
         return False
 
 

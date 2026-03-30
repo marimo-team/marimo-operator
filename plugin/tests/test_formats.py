@@ -177,6 +177,25 @@ import marimo"""
         assert meta["storage"] == "1Gi"
         assert meta["mounts"] == ["sshfs://user@host:/data", "cw://bucket/prefix"]
 
+    def test_k8s_node_selector(self):
+        content = """# /// script
+# dependencies = ["marimo"]
+# ///
+# [tool.marimo.k8s]
+# storage = "1Gi"
+#
+# [tool.marimo.k8s.nodeSelector]
+# compute.coreweave.com/node-pool = "gpu-node-pool"
+# gpu = "true"
+import marimo"""
+        meta = extract_pep723_metadata(content)
+        assert meta["storage"] == "1Gi"
+        assert "nodeSelector" in meta
+        assert (
+            meta["nodeSelector"]["compute.coreweave.com/node-pool"] == "gpu-node-pool"
+        )
+        assert meta["nodeSelector"]["gpu"] == "true"
+
 
 class TestIsMaimoPython:
     def test_import_marimo(self):

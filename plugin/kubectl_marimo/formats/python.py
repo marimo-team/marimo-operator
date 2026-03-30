@@ -31,7 +31,8 @@ def extract_pep723_metadata(content: str) -> dict[str, Any] | None:
     # storage = "5Gi"
     """
     # Look for PEP 723 script block
-    pattern = r"# /// script\n((?:# .*\n)*?)# ///"
+    # Pattern allows empty comment lines (# or #\n) as well as # followed by content
+    pattern = r"# /// script\n((?:#(?: .*)?\n)*?)# ///"
     match = re.search(pattern, content)
 
     if not match:
@@ -91,6 +92,25 @@ def extract_pep723_metadata(content: str) -> dict[str, Any] | None:
                 env[key] = value
         if env:
             metadata["env"] = env
+
+    # Look for marimo k8s nodeSelector config
+    node_selector_pattern = r"# \[tool\.marimo\.k8s\.nodeSelector\]\n((?:# .*\n)*)"
+    node_selector_match = re.search(node_selector_pattern, content)
+    if node_selector_match:
+        node_selector = {}
+        for line in node_selector_match.group(1).split("\n"):
+            line = line.lstrip("# ").strip()
+            if line.startswith("["):
+                # Stop at next section
+                break
+            if "=" in line:
+                key, _, value = line.partition("=")
+                key = key.strip()
+                value = value.strip()
+                value = _parse_toml_value(value)
+                node_selector[key] = value
+        if node_selector:
+            metadata["nodeSelector"] = node_selector
 
     return metadata if metadata else None
 

@@ -369,6 +369,7 @@ func buildResourceRequirements(spec *marimov1alpha1.ResourcesSpec) corev1.Resour
 
 // applyPodOverrides merges overrides into base using strategic merge patch.
 func applyPodOverrides(base, overrides corev1.PodSpec) corev1.PodSpec {
+	// Clear empty slices to prevent them from replacing base values.
 	baseJSON, err := json.Marshal(base)
 	if err != nil {
 		return base

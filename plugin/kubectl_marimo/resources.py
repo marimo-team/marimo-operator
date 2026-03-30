@@ -10,6 +10,27 @@ from typing import Any
 # Default SSH image, configurable via environment
 SSH_IMAGE = os.environ.get("SSH_IMAGE", "linuxserver/openssh-server:latest")
 
+# Fields that pass through directly from frontmatter to spec (no transformation)
+PASSTHROUGH_SPEC_FIELDS = {
+    "image",
+    "port",
+    "resources",
+    "sidecars",
+    "source",
+    "podOverrides",
+}
+
+# Fields requiring special handling
+SPECIAL_FIELDS = {"auth", "nodeSelector", "env", "mounts", "storage", "title"}
+
+# PEP723 fields that are parsed but not used for K8s (ignored silently)
+PEP723_IGNORED_FIELDS = {"dependencies", "requires-python"}
+
+# All known frontmatter fields (for unknown field warnings)
+KNOWN_FRONTMATTER_FIELDS = (
+    PASSTHROUGH_SPEC_FIELDS | SPECIAL_FIELDS | PEP723_IGNORED_FIELDS
+)
+
 
 def parse_mount_uri(uri: str) -> tuple[str, str]:
     """Parse mount URI into (scheme, path).
@@ -160,7 +181,9 @@ def build_marimo_notebook(
     frontmatter: dict[str, Any] | None = None,
     mode: str = "edit",
     source: str | None = None,
-) -> tuple[dict[str, Any], list[tuple[str, str, str]], list[tuple[str, str]]]:
+) -> tuple[
+    dict[str, Any], list[tuple[str, str, str]], list[tuple[str, str]], list[str]
+]:
     """Build MarimoNotebook custom resource.
 
     Args:
@@ -172,11 +195,13 @@ def build_marimo_notebook(
         source: Data source URI (rsync://, sshfs://, cw://)
 
     Returns:
-        (resource, rsync_mounts, sshfs_mounts)
+        (resource, rsync_mounts, sshfs_mounts, warnings)
         - resource: CRD dict to apply to cluster
         - rsync_mounts: list of (source_path, mount_point, scheme) for kubectl cp
         - sshfs_mounts: list of (remote_path, local_mount) for local sshfs
+        - warnings: list of warning messages (e.g., unknown frontmatter fields)
     """
+    warnings: list[str] = []
     spec: dict[str, Any] = {
         "mode": mode,
     }
@@ -184,29 +209,42 @@ def build_marimo_notebook(
     # Content (file-based deployments, empty string for directory mode)
     spec["content"] = content if content else ""
 
-    # Default storage (PVC by notebook name) - always create PVC
-    storage_size = "1Gi"
-    if frontmatter and "storage" in frontmatter:
-        storage_size = frontmatter["storage"]
-    spec["storage"] = {"size": storage_size}
-
-    # Apply frontmatter settings
     if frontmatter:
-        if "image" in frontmatter:
-            spec["image"] = frontmatter["image"]
-        if "port" in frontmatter:
-            spec["port"] = int(frontmatter["port"])
-        if "auth" in frontmatter:
-            if frontmatter["auth"] == "none":
-                spec["auth"] = {}  # Empty auth block = --no-token
+        # Warn about unknown fields (catches typos like "imge")
+        for field in frontmatter:
+            if field not in KNOWN_FRONTMATTER_FIELDS:
+                warnings.append(f"Unknown frontmatter field '{field}' will be ignored")
 
-        # Environment variables
+        # Pass through valid spec fields directly (no transformation needed)
+        for field in PASSTHROUGH_SPEC_FIELDS:
+            if field in frontmatter:
+                spec[field] = frontmatter[field]
+
+        # Storage: handle both string shorthand and full object
+        storage = frontmatter.get("storage", "1Gi")
+        if isinstance(storage, str):
+            spec["storage"] = {"size": storage}
+        else:
+            spec["storage"] = storage
+
+        # Auth: "none" → empty dict for --no-token
+        if frontmatter.get("auth") == "none":
+            spec["auth"] = {}
+        elif "auth" in frontmatter:
+            spec["auth"] = frontmatter["auth"]
+
+        # nodeSelector → nested in podOverrides (merge with existing if present)
+        if "nodeSelector" in frontmatter:
+            spec.setdefault("podOverrides", {})["nodeSelector"] = frontmatter[
+                "nodeSelector"
+            ]
+
+        # Env: parse simplified syntax to K8s EnvVar format
         if "env" in frontmatter:
             spec["env"] = parse_env(frontmatter["env"])
-
-        # Resources (CPU, memory, GPU)
-        if "resources" in frontmatter:
-            spec["resources"] = frontmatter["resources"]
+    else:
+        # Default storage when no frontmatter
+        spec["storage"] = {"size": "1Gi"}
 
     # Collect mounts from --source and frontmatter
     all_mounts = []
@@ -223,12 +261,13 @@ def build_marimo_notebook(
         if cw_mounts:
             spec["mounts"] = cw_mounts
 
-    # Add SSH sidecars for sshfs mounts
-    sidecars = []
+    # Add SSH sidecars for sshfs mounts (merge with existing sidecars if present)
+    ssh_sidecars = []
     for i, _ in enumerate(sshfs_mounts):
-        sidecars.append(build_ssh_sidecar(i))
-    if sidecars:
-        spec["sidecars"] = sidecars
+        ssh_sidecars.append(build_ssh_sidecar(i))
+    if ssh_sidecars:
+        existing_sidecars = spec.get("sidecars", [])
+        spec["sidecars"] = existing_sidecars + ssh_sidecars
 
     metadata = {"name": name}
     if namespace is not None:
@@ -240,7 +279,7 @@ def build_marimo_notebook(
         "metadata": metadata,
         "spec": spec,
     }
-    return resource, rsync_mounts, sshfs_mounts
+    return resource, rsync_mounts, sshfs_mounts, warnings
 
 
 def to_yaml(resource: dict[str, Any]) -> str:
