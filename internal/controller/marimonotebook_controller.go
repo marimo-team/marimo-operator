@@ -23,6 +23,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -192,9 +193,19 @@ func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *m
 		return nil, err
 	}
 
+	// Compute hash of desired pod spec for change detection
+	specHash, err := resources.PodSpecHash(desired)
+	if err != nil {
+		return nil, fmt.Errorf("computing pod spec hash: %w", err)
+	}
+	if desired.Annotations == nil {
+		desired.Annotations = make(map[string]string)
+	}
+	desired.Annotations[resources.PodSpecHashAnnotation] = specHash
+
 	// Check if Pod exists
 	existing := &corev1.Pod{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	err = r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			logger.Info("Creating Pod", "name", desired.Name)
@@ -213,7 +224,16 @@ func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *m
 		return nil, err
 	}
 
-	// Pod exists - we don't update running pods (recreate strategy)
+	// Pod exists - check if spec has changed and recreate if so
+	if existingHash := existing.Annotations[resources.PodSpecHashAnnotation]; existingHash != specHash {
+		logger.Info("Pod spec changed, recreating", "name", existing.Name)
+		if err := r.Delete(ctx, existing); err != nil && !k8serrors.IsNotFound(err) {
+			return nil, err
+		}
+		// Pod deleted - next reconcile will create the updated pod
+		return nil, nil
+	}
+
 	return existing, nil
 }
 
@@ -221,33 +241,32 @@ func (r *MarimoNotebookReconciler) reconcileService(ctx context.Context, noteboo
 	logger := logf.FromContext(ctx)
 	desired := resources.BuildService(notebook)
 
-	// Set owner reference
-	if err := controllerutil.SetControllerReference(notebook, desired, r.Scheme); err != nil {
-		return nil, err
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      desired.Name,
+			Namespace: desired.Namespace,
+		},
 	}
 
-	// Check if Service exists
-	existing := &corev1.Service{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
-	if err != nil {
-		if k8serrors.IsNotFound(err) {
-			logger.Info("Creating Service", "name", desired.Name)
-			if err := r.Create(ctx, desired); err != nil {
-				if k8serrors.IsAlreadyExists(err) {
-					// Service was created between Get and Create, re-fetch
-					if err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing); err != nil {
-						return nil, err
-					}
-					return existing, nil
-				}
-				return nil, err
-			}
-			return desired, nil
+	op, err := controllerutil.CreateOrUpdate(ctx, r.Client, svc, func() error {
+		if err := controllerutil.SetControllerReference(notebook, svc, r.Scheme); err != nil {
+			return err
 		}
+		svc.Labels = desired.Labels
+		svc.Spec.Ports = desired.Spec.Ports
+		svc.Spec.Selector = desired.Spec.Selector
+		svc.Spec.Type = desired.Spec.Type
+		return nil
+	})
+	if err != nil {
 		return nil, err
 	}
 
-	return existing, nil
+	if op != controllerutil.OperationResultNone {
+		logger.Info("Reconciled Service", "name", svc.Name, "operation", op)
+	}
+
+	return svc, nil
 }
 
 func (r *MarimoNotebookReconciler) updateStatus(ctx context.Context, notebook *marimov1alpha1.MarimoNotebook, pod *corev1.Pod, svc *corev1.Service) (ctrl.Result, error) {

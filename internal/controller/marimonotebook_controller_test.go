@@ -370,6 +370,120 @@ var _ = Describe("MarimoNotebook Controller", func() {
 		})
 	})
 
+	Context("When updating a MarimoNotebook", func() {
+		var notebook *marimov1alpha1.MarimoNotebook
+		var namespacedName types.NamespacedName
+
+		BeforeEach(func() {
+			notebook = &marimov1alpha1.MarimoNotebook{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-update-" + randString(),
+					Namespace: "default",
+				},
+				Spec: marimov1alpha1.MarimoNotebookSpec{
+					Source:  "https://github.com/marimo-team/marimo.git",
+					Storage: &marimov1alpha1.StorageSpec{Size: "1Gi"},
+				},
+			}
+			namespacedName = types.NamespacedName{
+				Name:      notebook.Name,
+				Namespace: notebook.Namespace,
+			}
+		})
+
+		AfterEach(func() {
+			_ = k8sClient.Delete(ctx, notebook)
+		})
+
+		It("should update Service ports when a sidecar with a port is added", func() {
+			pausePort := int32(9090)
+
+			By("creating the MarimoNotebook with storage")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("waiting for Service to be created with only the main port")
+			svc := &corev1.Service{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, svc)
+			}, timeout, interval).Should(Succeed())
+			Expect(svc.Spec.Ports).To(HaveLen(1))
+
+			By("updating the MarimoNotebook to add a pause sidecar with a container port")
+			nb := &marimov1alpha1.MarimoNotebook{}
+			Expect(k8sClient.Get(ctx, namespacedName, nb)).To(Succeed())
+			nb.Spec.Sidecars = []marimov1alpha1.SidecarSpec{
+				{
+					Name:       "pause",
+					Image:      "registry.k8s.io/pause:3.9",
+					ExposePort: &pausePort,
+				},
+			}
+			Expect(k8sClient.Update(ctx, nb)).To(Succeed())
+
+			By("checking Service is updated to include the sidecar port")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, namespacedName, svc); err != nil {
+					return false
+				}
+				for _, port := range svc.Spec.Ports {
+					if port.Name == "pause" && port.Port == pausePort {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "Service should expose the pause sidecar port")
+
+			Expect(svc.Spec.Ports).To(HaveLen(2))
+		})
+
+		It("should recreate Pod when env vars are changed", func() {
+			By("creating the MarimoNotebook")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("waiting for initial Pod to be created")
+			pod := &corev1.Pod{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, pod)
+			}, timeout, interval).Should(Succeed())
+			originalUID := pod.UID
+
+			By("updating the notebook to add an env var")
+			nb := &marimov1alpha1.MarimoNotebook{}
+			Expect(k8sClient.Get(ctx, namespacedName, nb)).To(Succeed())
+			nb.Spec.Env = []corev1.EnvVar{
+				{Name: "MY_VAR", Value: "hello"},
+			}
+			Expect(k8sClient.Update(ctx, nb)).To(Succeed())
+
+			By("verifying Pod is recreated with the new env var")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, namespacedName, pod); err != nil {
+					return false
+				}
+				if pod.UID == originalUID {
+					return false // still the old pod
+				}
+				for _, env := range pod.Spec.Containers[0].Env {
+					if env.Name == "MY_VAR" && env.Value == "hello" {
+						return true
+					}
+				}
+				return false
+			}, timeout, interval).Should(BeTrue(), "Pod should be recreated with MY_VAR env var")
+		})
+
+		It("should reject changes to the storage attribute", func() {
+			By("creating the MarimoNotebook with storage")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("attempting to update the storage attribute")
+			nb := &marimov1alpha1.MarimoNotebook{}
+			Expect(k8sClient.Get(ctx, namespacedName, nb)).To(Succeed())
+			nb.Spec.Storage = &marimov1alpha1.StorageSpec{Size: "2Gi"}
+			Expect(k8sClient.Update(ctx, nb)).To(MatchError(ContainSubstring("storage is immutable once set")))
+		})
+	})
+
 	Context("When deleting a MarimoNotebook", func() {
 		It("should clean up owned resources via garbage collection", func() {
 			notebook := &marimov1alpha1.MarimoNotebook{
