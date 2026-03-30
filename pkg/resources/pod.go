@@ -25,13 +25,13 @@ const (
 )
 
 // PodSpecHash returns a SHA-256 hash of the pod's spec for change detection.
-func PodSpecHash(pod *corev1.Pod) string {
+func PodSpecHash(pod *corev1.Pod) (string, error) {
 	data, err := json.Marshal(pod.Spec)
 	if err != nil {
-		return ""
+		return "", err
 	}
 	sum := sha256.Sum256(data)
-	return hex.EncodeToString(sum[:])
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // BuildPod creates a Pod spec for a MarimoNotebook.

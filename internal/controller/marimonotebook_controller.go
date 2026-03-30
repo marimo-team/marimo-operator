@@ -19,7 +19,6 @@ package controller
 import (
 	"context"
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -189,16 +188,16 @@ func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *m
 	logger := logf.FromContext(ctx)
 	desired := resources.BuildPod(notebook)
 
-	podJSON, _ := json.Marshal(desired)
-	logger.V(1).Info("Desired pod spec", "pod", string(podJSON))
-
 	// Set owner reference for automatic garbage collection
 	if err := controllerutil.SetControllerReference(notebook, desired, r.Scheme); err != nil {
 		return nil, err
 	}
 
 	// Compute hash of desired pod spec for change detection
-	specHash := resources.PodSpecHash(desired)
+	specHash, err := resources.PodSpecHash(desired)
+	if err != nil {
+		return nil, fmt.Errorf("computing pod spec hash: %w", err)
+	}
 	if desired.Annotations == nil {
 		desired.Annotations = make(map[string]string)
 	}
@@ -206,7 +205,7 @@ func (r *MarimoNotebookReconciler) reconcilePod(ctx context.Context, notebook *m
 
 	// Check if Pod exists
 	existing := &corev1.Pod{}
-	err := r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
+	err = r.Get(ctx, client.ObjectKeyFromObject(desired), existing)
 	if err != nil {
 		if k8serrors.IsNotFound(err) {
 			logger.Info("Creating Pod", "name", desired.Name)
@@ -256,6 +255,7 @@ func (r *MarimoNotebookReconciler) reconcileService(ctx context.Context, noteboo
 		svc.Labels = desired.Labels
 		svc.Spec.Ports = desired.Spec.Ports
 		svc.Spec.Selector = desired.Spec.Selector
+		svc.Spec.Type = desired.Spec.Type
 		return nil
 	})
 	if err != nil {

@@ -480,7 +480,7 @@ var _ = Describe("MarimoNotebook Controller", func() {
 			nb := &marimov1alpha1.MarimoNotebook{}
 			Expect(k8sClient.Get(ctx, namespacedName, nb)).To(Succeed())
 			nb.Spec.Storage = &marimov1alpha1.StorageSpec{Size: "2Gi"}
-			Expect(k8sClient.Update(ctx, nb)).To(MatchError(ContainSubstring("storage is immutable")))
+			Expect(k8sClient.Update(ctx, nb)).To(MatchError(ContainSubstring("storage is immutable once set")))
 		})
 	})
 
