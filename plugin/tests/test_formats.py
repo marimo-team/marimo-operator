@@ -128,7 +128,7 @@ import marimo
 app = marimo.App()"""
         result_content, metadata = parse_python(content)
         assert result_content == content
-        assert metadata["dependencies"] == '["marimo", "pandas"]'
+        assert metadata["dependencies"] == ["marimo", "pandas"]
 
     def test_parse_no_metadata(self):
         content = "import marimo\napp = marimo.App()"
@@ -141,20 +141,21 @@ class TestExtractPep723Metadata:
     def test_basic(self):
         content = """# /// script
 # dependencies = ["marimo"]
-# requires-python = ">=3.10"
+# requires-python = ">=3.11"
 # ///
 code"""
         meta = extract_pep723_metadata(content)
-        assert meta["dependencies"] == '["marimo"]'
-        assert meta["requires-python"] == ">=3.10"
+        assert meta["dependencies"] == ["marimo"]
+        assert meta["requires-python"] == ">=3.11"
 
     def test_k8s_config(self):
         content = """# /// script
 # dependencies = ["marimo"]
-# ///
+#
 # [tool.marimo.k8s]
 # image = "custom:latest"
 # storage = "5Gi"
+# ///
 import marimo"""
         meta = extract_pep723_metadata(content)
         assert meta["image"] == "custom:latest"
@@ -168,10 +169,11 @@ import marimo"""
     def test_k8s_mounts_list(self):
         content = """# /// script
 # dependencies = ["marimo"]
-# ///
+#
 # [tool.marimo.k8s]
 # storage = "1Gi"
 # mounts = ["sshfs://user@host:/data", "cw://bucket/prefix"]
+# ///
 import marimo"""
         meta = extract_pep723_metadata(content)
         assert meta["storage"] == "1Gi"
@@ -180,13 +182,14 @@ import marimo"""
     def test_k8s_node_selector(self):
         content = """# /// script
 # dependencies = ["marimo"]
-# ///
+#
 # [tool.marimo.k8s]
 # storage = "1Gi"
 #
 # [tool.marimo.k8s.nodeSelector]
-# compute.coreweave.com/node-pool = "gpu-node-pool"
+# "compute.coreweave.com/node-pool" = "gpu-node-pool"
 # gpu = "true"
+# ///
 import marimo"""
         meta = extract_pep723_metadata(content)
         assert meta["storage"] == "1Gi"

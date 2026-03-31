@@ -1,6 +1,7 @@
 """Parser for marimo Python notebooks."""
 
 import re
+import tomllib
 from typing import Any
 
 
@@ -17,145 +18,59 @@ def parse_python(content: str) -> tuple[str, dict[str, Any] | None]:
 
 
 def extract_pep723_metadata(content: str) -> dict[str, Any] | None:
-    """Extract PEP 723 inline script metadata.
+    """Extract PEP 723 inline script metadata and marimo k8s config.
 
-    PEP 723 metadata is embedded in a comment block:
+    PEP 723 metadata is embedded in a comment block at the top of the file:
 
-    # /// script
-    # dependencies = ["marimo", "pandas"]
-    # ///
+        # /// script
+        # dependencies = ["marimo", "pandas"]
+        #
+        # [tool.marimo.k8s]
+        # image = "custom-image:latest"
+        # storage = "5Gi"
+        # ///
 
-    We also look for custom marimo fields:
-    # [tool.marimo.k8s]
-    # image = "custom-image:latest"
-    # storage = "5Gi"
+    The entire block is valid TOML once the leading `# ` is stripped from each line.
+    Marimo k8s config lives under [tool.marimo.k8s] and its subsections.
     """
-    # Look for PEP 723 script block
-    # Pattern allows empty comment lines (# or #\n) as well as # followed by content
     pattern = r"# /// script\n((?:#(?: .*)?\n)*?)# ///"
     match = re.search(pattern, content)
-
     if not match:
         return None
 
-    metadata = {}
-    block = match.group(1)
+    # Strip exactly the `# ` prefix (2 chars) from each comment line.
+    # Bare `#` lines (blank comments) become empty lines, preserving TOML structure.
+    lines = []
+    for line in match.group(1).splitlines():
+        if line.startswith("# "):
+            lines.append(line[2:])
+        elif line.rstrip() == "#":
+            lines.append("")
+    toml_str = "\n".join(lines)
 
-    # Parse TOML-like lines
-    for line in block.split("\n"):
-        line = line.lstrip("# ").strip()
-        if "=" in line:
-            key, _, value = line.partition("=")
-            key = key.strip()
-            value = value.strip()
-            # Parse simple values
-            if value.startswith('"') and value.endswith('"'):
-                value = value[1:-1]
-            elif value.startswith("'") and value.endswith("'"):
-                value = value[1:-1]
-            elif value.startswith("["):
-                # List - for now just store as string
-                pass
-            metadata[key] = value
+    try:
+        data = tomllib.loads(toml_str)
+    except tomllib.TOMLDecodeError:
+        return None
 
-    # Look for marimo k8s config
-    k8s_pattern = r"# \[tool\.marimo\.k8s\]\n((?:# .*\n)*)"
-    k8s_match = re.search(k8s_pattern, content)
-    if k8s_match:
-        for line in k8s_match.group(1).split("\n"):
-            line = line.lstrip("# ").strip()
-            if line.startswith("["):
-                # Stop at next section
-                break
-            if "=" in line:
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip()
-                value = _parse_toml_value(value)
-                metadata[key] = value
+    metadata: dict[str, Any] = {}
 
-    # Look for marimo k8s env config
-    env_pattern = r"# \[tool\.marimo\.k8s\.env\]\n((?:# .*\n)*)"
-    env_match = re.search(env_pattern, content)
-    if env_match:
-        env = {}
-        for line in env_match.group(1).split("\n"):
-            line = line.lstrip("# ").strip()
-            if line.startswith("["):
-                # Stop at next section
-                break
-            if "=" in line:
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip()
-                value = _parse_toml_value(value)
-                env[key] = value
-        if env:
-            metadata["env"] = env
+    # PEP 723 standard top-level fields (resources.py ignores these, but callers may use them)
+    for key in ("dependencies", "requires-python"):
+        if key in data:
+            metadata[key] = data[key]
 
-    # Look for marimo k8s nodeSelector config
-    node_selector_pattern = r"# \[tool\.marimo\.k8s\.nodeSelector\]\n((?:# .*\n)*)"
-    node_selector_match = re.search(node_selector_pattern, content)
-    if node_selector_match:
-        node_selector = {}
-        for line in node_selector_match.group(1).split("\n"):
-            line = line.lstrip("# ").strip()
-            if line.startswith("["):
-                # Stop at next section
-                break
-            if "=" in line:
-                key, _, value = line.partition("=")
-                key = key.strip()
-                value = value.strip()
-                value = _parse_toml_value(value)
-                node_selector[key] = value
-        if node_selector:
-            metadata["nodeSelector"] = node_selector
+    # k8s config lives under [tool.marimo.k8s]
+    k8s = data.get("tool", {}).get("marimo", {}).get("k8s", {})
 
+    # Kubernetes resource quantities must be strings; tomllib parses bare integers as int.
+    if "resources" in k8s:
+        for section, limits in k8s["resources"].items():
+            if isinstance(limits, dict):
+                k8s["resources"][section] = {k: str(v) for k, v in limits.items()}
+
+    metadata.update(k8s)
     return metadata if metadata else None
-
-
-def _parse_toml_value(value: str) -> Any:
-    """Parse a TOML-like value (string, list, etc.)."""
-    value = value.strip()
-
-    # String with double quotes
-    if value.startswith('"') and value.endswith('"'):
-        return value[1:-1]
-
-    # String with single quotes
-    if value.startswith("'") and value.endswith("'"):
-        return value[1:-1]
-
-    # List
-    if value.startswith("[") and value.endswith("]"):
-        # Simple list parsing - handles ["a", "b", "c"]
-        inner = value[1:-1].strip()
-        if not inner:
-            return []
-        items = []
-        for item in inner.split(","):
-            item = item.strip()
-            if item.startswith('"') and item.endswith('"'):
-                items.append(item[1:-1])
-            elif item.startswith("'") and item.endswith("'"):
-                items.append(item[1:-1])
-            else:
-                items.append(item)
-        return items
-
-    # Number
-    if value.isdigit():
-        return int(value)
-
-    # Boolean
-    if value.lower() == "true":
-        return True
-    if value.lower() == "false":
-        return False
-
-    # Default: return as string
-    return value
 
 
 def is_marimo_python(content: str) -> bool:
