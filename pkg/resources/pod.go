@@ -87,8 +87,10 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 				Name:  "copy-content",
 				Image: config.DefaultInitImage,
 				Command: []string{"sh", "-c", fmt.Sprintf(
-					"cp /content/%s %s/%s",
+					"cp /content/%s %s/%s && chmod 666 %s/%s",
 					ContentKey,
+					NotebookDir,
+					contentKey,
 					NotebookDir,
 					contentKey,
 				)},

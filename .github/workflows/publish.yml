@@ -72,6 +72,25 @@ jobs:
           tags: ${{ steps.s3fs-meta.outputs.tags }}
           labels: ${{ steps.s3fs-meta.outputs.labels }}
 
+      - name: Extract tensorrt metadata
+        id: tensorrt-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/tensorrt
+          tags: |
+            type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' || github.ref == 'refs/heads/main' }}
+            type=sha,prefix=
+
+      - name: Build and push tensorrt
+        uses: docker/build-push-action@v5
+        with:
+          context: examples/tensorrt
+          platforms: linux/amd64
+          push: true
+          tags: ${{ steps.tensorrt-meta.outputs.tags }}
+          labels: ${{ steps.tensorrt-meta.outputs.labels }}
+
       - name: Notify release result
         if: always() && startsWith(github.ref, 'refs/tags/v')
         uses: marimo-team/internal-gh-actions/release-notification@main
