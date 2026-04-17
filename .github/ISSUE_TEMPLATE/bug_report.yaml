@@ -1,0 +1,63 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/SchemaStore/schemastore/refs/heads/master/src/schemas/json/github-issue-forms.json
+name: "🐞 Bug report"
+description: Report an issue with the marimo-operator or kubectl-marimo plugin
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for filing this bug report!
+
+        **Tip:** You can check the operator version and logs quickly with:
+        ```bash
+        kubectl logs -n marimo-operator-system -l control-plane=controller-manager --tail=50
+        kubectl describe marimo <name>
+        ```
+
+  - type: textarea
+    id: bug-description
+    attributes:
+      label: Describe the bug
+      description: What went wrong? Include any error messages or stack traces.
+      placeholder: |
+        Running `kubectl marimo edit notebook.py` fails with:
+        ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: The smallest set of steps or YAML that triggers the bug.
+      placeholder: |
+        1. Apply this MarimoNotebook CR:
+        ```yaml
+        apiVersion: marimo.io/v1alpha1
+        kind: MarimoNotebook
+        ...
+        ```
+        2. Run `kubectl get marimos`
+        3. See error...
+    validations:
+      required: false
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      value: |
+        - **operator version** (image tag or `kubectl get deployment -n marimo-operator-system`):
+        - **kubectl-marimo version** (`kubectl-marimo --version`):
+        - **Kubernetes version** (`kubectl version --short`):
+        - **Cloud / cluster type** (e.g. CKS, GKE, kind):
+        - **OS**:
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: will-submit-pr
+    attributes:
+      label: Will you submit a PR?
+      options:
+        - label: "Yes, I'd like to fix this"
