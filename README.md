@@ -32,6 +32,10 @@ kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/m
 # Option 2: Install via kustomize
 kubectl apply -k https://github.com/marimo-team/marimo-operator/config/default
 
+# Option 3: Install via Helm
+helm install marimo-operator ./deploy/charts/marimo-operator \
+  --namespace marimo-operator-system --create-namespace
+
 # Verify installation
 kubectl get pods -n marimo-operator-system
 # Should show: marimo-operator-controller-manager-xxx  Running
