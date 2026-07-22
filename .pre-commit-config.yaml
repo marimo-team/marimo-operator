@@ -1,3 +1,10 @@
+ci:
+  # Go formatting/vetting is enforced by the golangci-lint workflow (lint.yml).
+  # The dnephin/pre-commit-golang go-vet hook is also incompatible with this
+  # repo's single-root-go.mod layout (fails with "no Go files in <root>"), so
+  # skip both Go hooks on pre-commit.ci to keep it green.
+  skip: [go-fmt, go-vet]
+
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -5,6 +12,7 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        args: [--allow-multiple-documents]
       - id: check-merge-conflict
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
