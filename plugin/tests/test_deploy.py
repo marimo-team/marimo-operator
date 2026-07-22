@@ -482,7 +482,7 @@ secret_key = ALPHA_SECRET
         mocker.patch("os.path.expanduser", return_value=str(s3cfg))
         mocker.patch("os.path.exists", return_value=True)
         mocker.patch("sys.stdin.isatty", return_value=False)
-        mock_echo = mocker.patch("kubectl_marimo.deploy.click.echo")
+        mocker.patch("kubectl_marimo.deploy.click.echo")
 
         mock_result = mocker.Mock()
         mock_result.returncode = 0
