@@ -43,6 +43,12 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 	var volumeMounts []corev1.VolumeMount
 	var volumes []corev1.Volume
 
+	runAsUser := notebook.Spec.RunAsUser
+	if runAsUser == nil {
+		defaultUID := int64(1000)
+		runAsUser = &defaultUID
+	}
+
 	// Use PVC if storage is configured, otherwise emptyDir
 	if notebook.Spec.Storage != nil {
 		volumes = []corev1.Volume{
@@ -98,6 +104,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 					{Name: PVCVolumeName, MountPath: NotebookDir},
 					{Name: ConfigMapVolumeName, MountPath: "/content", ReadOnly: true},
 				},
+				SecurityContext: withRunAsUser(nil, runAsUser),
 			},
 		}
 	} else if notebook.Spec.Source != "" {
@@ -115,6 +122,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 				VolumeMounts: []corev1.VolumeMount{
 					{Name: PVCVolumeName, MountPath: NotebookDir},
 				},
+				SecurityContext: withRunAsUser(nil, runAsUser),
 			},
 		}
 	}
@@ -130,6 +138,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		VolumeMounts: []corev1.VolumeMount{
 			{Name: "venv", MountPath: "/opt/venv"},
 		},
+		SecurityContext: withRunAsUser(nil, runAsUser),
 	})
 
 	// Add venv volume (emptyDir, shared between init and main container)
@@ -217,7 +226,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 
 	// Expand mounts to sidecars and merge with explicit sidecars
 	// (do this first so we can check for FUSE sidecars)
-	allSidecars := expandMounts(notebook.Spec.Mounts)
+	allSidecars := expandMounts(notebook.Spec.Mounts, runAsUser)
 	allSidecars = append(allSidecars, notebook.Spec.Sidecars...)
 
 	// Check if any sidecar uses FUSE (privileged) - if so, marimo container needs
@@ -277,8 +286,9 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 					Protocol:      corev1.ProtocolTCP,
 				},
 			},
-			VolumeMounts: marimoVolumeMounts,
-			Resources:    buildResourceRequirements(notebook.Spec.Resources),
+			VolumeMounts:    marimoVolumeMounts,
+			Resources:       buildResourceRequirements(notebook.Spec.Resources),
+			SecurityContext: withRunAsUser(nil, runAsUser),
 		},
 	}
 
@@ -455,12 +465,12 @@ func parseCWMountURI(uri string) (bucket, subpath, mountPoint string) {
 //
 // Note: sshfs:// and rsync:// mounts are handled by the kubectl-marimo plugin,
 // not the operator. The plugin adds explicit sidecar specs to the CRD.
-func expandMounts(mounts []string) []marimov1alpha1.SidecarSpec {
+func expandMounts(mounts []string, runAsUser *int64) []marimov1alpha1.SidecarSpec {
 	var sidecars []marimov1alpha1.SidecarSpec
 
 	for i, mount := range mounts {
 		if strings.HasPrefix(mount, "cw://") {
-			if sidecar := buildCWSidecar(mount, i); sidecar != nil {
+			if sidecar := buildCWSidecar(mount, i, runAsUser); sidecar != nil {
 				sidecars = append(sidecars, *sidecar)
 			}
 		}
@@ -478,7 +488,7 @@ const CWCredentialsSecret = "cw-credentials"
 // URI format: cw://bucket[/path][:mount]
 // Credentials from cw-credentials secret (auto-created by kubectl-marimo plugin).
 // Endpoint from S3_ENDPOINT env var (default: https://cwobject.com).
-func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
+func buildCWSidecar(uri string, index int, runAsUser *int64) *marimov1alpha1.SidecarSpec {
 	bucket, subpath, customMount := parseCWMountURI(uri)
 	if bucket == "" {
 		return nil
@@ -538,9 +548,12 @@ func buildCWSidecar(uri string, index int) *marimov1alpha1.SidecarSpec {
 			},
 		},
 		// FUSE requires privileged access to /dev/fuse
-		SecurityContext: &corev1.SecurityContext{
-			Privileged: ptrBool(true),
-		},
+		SecurityContext: withRunAsUser(
+			&corev1.SecurityContext{
+				Privileged: ptrBool(true),
+			},
+			runAsUser,
+		),
 	}
 }
 
@@ -549,7 +562,17 @@ func ptrBool(b bool) *bool {
 	return &b
 }
 
-// ptrString returns a pointer to a string value.
-func ptrString(s string) *string {
-	return &s
+// withRunAsUser returns a SecurityContext with RunAsUser set.
+// Returns nil if both arguments are nil.
+// If existing is non-nil it is shallow-copied so the original is not modified.
+func withRunAsUser(existing *corev1.SecurityContext, runAsUser *int64) *corev1.SecurityContext {
+	if existing == nil && runAsUser == nil {
+		return nil
+	}
+	if existing == nil {
+		return &corev1.SecurityContext{RunAsUser: runAsUser}
+	}
+	sc := *existing
+	sc.RunAsUser = runAsUser
+	return &sc
 }
