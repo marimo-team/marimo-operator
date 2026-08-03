@@ -40,44 +40,6 @@ type SecretKeySelector struct {
 	SecretKeyRef corev1.SecretKeySelector `json:"secretKeyRef"`
 }
 
-// SidecarSpec defines an additional container that runs alongside marimo.
-type SidecarSpec struct {
-	// Name of the sidecar container (must be unique)
-	// +kubebuilder:validation:Required
-	Name string `json:"name"`
-
-	// Image to use for the sidecar
-	// +kubebuilder:validation:Required
-	Image string `json:"image"`
-
-	// ExposePort adds this port to the Service for external access
-	// +optional
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:validation:Maximum=65535
-	ExposePort *int32 `json:"exposePort,omitempty"`
-
-	// Env variables for the sidecar
-	// +optional
-	Env []corev1.EnvVar `json:"env,omitempty"`
-
-	// Command overrides the container entrypoint
-	// +optional
-	Command []string `json:"command,omitempty"`
-
-	// Args to pass to the command
-	// +optional
-	Args []string `json:"args,omitempty"`
-
-	// Resources for the sidecar container
-	// +optional
-	Resources *corev1.ResourceRequirements `json:"resources,omitempty"`
-
-	// SecurityContext for the sidecar container
-	// Required for FUSE-based mounts (s3fs, sshfs) which need privileged access
-	// +optional
-	SecurityContext *corev1.SecurityContext `json:"securityContext,omitempty"`
-}
-
 // MarimoNotebookSpec defines the desired state of MarimoNotebook.
 // +kubebuilder:validation:XValidation:rule="!(has(self.sidecars) && size(self.sidecars) > 0 && !has(self.storage))",message="storage is required when sidecars are specified"
 // +kubebuilder:validation:XValidation:rule="!(has(self.source) && has(self.content))",message="source and content are mutually exclusive"
@@ -135,7 +97,7 @@ type MarimoNotebookSpec struct {
 	// Sidecars are additional containers that run alongside marimo
 	// They share the PVC volume mounted at /data
 	// +optional
-	Sidecars []SidecarSpec `json:"sidecars,omitempty"`
+	Sidecars []corev1.Container `json:"sidecars,omitempty"`
 
 	// PodOverrides allows customizing the pod spec via strategic merge patch
 	// Use this for advanced configuration like nodeSelector, tolerations, etc.

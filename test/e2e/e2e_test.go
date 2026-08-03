@@ -501,7 +501,9 @@ spec:
   sidecars:
     - name: nginx
       image: nginx:alpine
-      exposePort: 80
+      ports:
+        - name: nginx
+          containerPort: 80
 `, notebookName, testNamespace)
 
 			yamlFile := filepath.Join("/tmp", notebookName+".yaml")

@@ -113,11 +113,13 @@ func TestBuildService_WithSidecarPorts(t *testing.T) {
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Port:   2718,
 			Source: "https://github.com/marimo-team/marimo.git",
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
-					Name:       "sshd",
-					Image:      "linuxserver/openssh-server:latest",
-					ExposePort: &sshPort,
+					Name:  "sshd",
+					Image: "linuxserver/openssh-server:latest",
+					Ports: []corev1.ContainerPort{
+						{Name: "sshd", ContainerPort: sshPort, Protocol: corev1.ProtocolTCP},
+					},
 				},
 			},
 		},
@@ -169,11 +171,11 @@ func TestBuildService_SidecarWithoutExposePort(t *testing.T) {
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Port:   2718,
 			Source: "https://github.com/marimo-team/marimo.git",
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
 					Name:  "helper",
 					Image: "helper:latest",
-					// No ExposePort - should not add to service
+					// No Ports - should not add to service
 				},
 			},
 		},
@@ -184,7 +186,7 @@ func TestBuildService_SidecarWithoutExposePort(t *testing.T) {
 	// Should only have 1 port (http)
 	if len(svc.Spec.Ports) != 1 {
 		t.Fatalf(
-			"expected 1 port (sidecar without ExposePort should not add ports), got %d",
+			"expected 1 port (sidecar without ports should not add ports), got %d",
 			len(svc.Spec.Ports))
 	}
 	if svc.Spec.Ports[0].Name != httpPortName {
@@ -203,16 +205,20 @@ func TestBuildService_MultipleSidecarsWithPorts(t *testing.T) {
 		Spec: marimov1alpha1.MarimoNotebookSpec{
 			Port:   2718,
 			Source: "https://github.com/marimo-team/marimo.git",
-			Sidecars: []marimov1alpha1.SidecarSpec{
+			Sidecars: []corev1.Container{
 				{
-					Name:       "sshd",
-					Image:      "openssh:latest",
-					ExposePort: &sshPort,
+					Name:  "sshd",
+					Image: "openssh:latest",
+					Ports: []corev1.ContainerPort{
+						{Name: "sshd", ContainerPort: sshPort, Protocol: corev1.ProtocolTCP},
+					},
 				},
 				{
-					Name:       "git-daemon",
-					Image:      "git:latest",
-					ExposePort: &gitPort,
+					Name:  "git-daemon",
+					Image: "git:latest",
+					Ports: []corev1.ContainerPort{
+						{Name: "git-daemon", ContainerPort: gitPort, Protocol: corev1.ProtocolTCP},
+					},
 				},
 			},
 		},
