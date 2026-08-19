@@ -14,7 +14,6 @@ app = marimo.App()
 @app.cell
 def check_mount():
     import os
-    import subprocess
 
     # Check default mount location
     mount_dir = "/home/marimo/notebooks/mounts"

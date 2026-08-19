@@ -122,11 +122,11 @@ def ensure_cw_credentials(namespace: str | None) -> bool:
         return False
 
     # Step 4: Show what we're about to do
-    click.echo(f"\nS3 Credentials:")
+    click.echo("\nS3 Credentials:")
     click.echo(f"  Namespace:    {ns_display}")
     click.echo(f"  Secret:       {secret_name} (will create)")
     click.echo(f"  Source:       ~/.s3cfg [{section}]")
-    click.echo(f"  Access Key:   ***")
+    click.echo("  Access Key:   ***")
 
     # Step 5: Confirm with user if in interactive terminal
     if sys.stdin.isatty():

@@ -1,9 +1,7 @@
 """Tests for status command."""
 
 import json
-from pathlib import Path
 
-from click.testing import CliRunner
 
 from kubectl_marimo.status import show_status, format_elapsed
 
