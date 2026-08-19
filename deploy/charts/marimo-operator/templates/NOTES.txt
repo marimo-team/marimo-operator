@@ -1,0 +1,17 @@
+marimo-operator has been installed.
+
+  Release:   {{ .Release.Name }}
+  Namespace: {{ .Release.Namespace }}
+  Chart:     {{ .Chart.Name }}-{{ .Chart.Version }} (app {{ .Chart.AppVersion }})
+
+Check the controller is running:
+
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/{{ include "marimo-operator.fullname" . }}-controller-manager
+
+The MarimoNotebook CRD (marimos.marimo.io) is installed from the chart's crds/ directory.
+NOTE: Helm does not upgrade or remove CRDs. On a chart upgrade that changes the CRD,
+apply it manually:
+
+  kubectl apply -f https://raw.githubusercontent.com/marimo-team/marimo-operator/{{ .Chart.AppVersion }}/deploy/charts/marimo-operator/crds/marimo.io_marimos.yaml
+
+Create a MarimoNotebook to get started — see the examples/ directory in the repository.

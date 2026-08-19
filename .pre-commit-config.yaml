@@ -12,6 +12,8 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # Helm templates are not valid standalone YAML.
+        exclude: ^deploy/charts/.*/templates/
         args: [--allow-multiple-documents]
       - id: check-merge-conflict
 

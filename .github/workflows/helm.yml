@@ -1,0 +1,44 @@
+name: Helm
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    name: Lint chart
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Helm
+        uses: azure/setup-helm@bf6a7d304bc2fdb57e0331155b7ebf2c504acf0a # v4
+
+      - name: helm lint
+        run: helm lint deploy/charts/marimo-operator
+
+      - name: helm template
+        run: helm template marimo-operator deploy/charts/marimo-operator --include-crds > /dev/null
+
+  crd-sync:
+    name: CRD in sync with generated manifests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone the code
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Setup Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+
+      - name: Regenerate manifests
+        run: make manifests
+
+      - name: Check chart CRDs match config/crd/bases
+        run: |
+          if ! git diff --exit-code config/crd/bases deploy/charts/marimo-operator/crds; then
+            echo "::error::CRDs are out of sync. Run 'make manifests' and commit the result."
+            exit 1
+          fi

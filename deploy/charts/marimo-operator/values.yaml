@@ -1,0 +1,118 @@
+# Number of operator replicas. Leader election elects a single active instance.
+replicaCount: 1
+
+image:
+  repository: ghcr.io/marimo-team/marimo-operator
+  # Overrides the image tag. Defaults to the chart appVersion when empty.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+serviceAccount:
+  # Create the controller ServiceAccount.
+  create: true
+  # Name of the ServiceAccount. Generated from the fullname when empty.
+  name: ""
+  annotations: {}
+
+rbac:
+  # Create the ClusterRole/Role and bindings the operator requires.
+  create: true
+
+leaderElection:
+  # Enable leader election (recommended; required for HA with replicaCount > 1).
+  enabled: true
+
+healthProbe:
+  bindAddress: ":8081"
+
+metrics:
+  # Serve the controller-manager metrics endpoint.
+  enabled: true
+  bindAddress: ":8443"
+  # Serve metrics over HTTPS with authn/authz.
+  secure: true
+  enableHTTP2: false
+  service:
+    type: ClusterIP
+    port: 8443
+  serviceMonitor:
+    # Create a Prometheus Operator ServiceMonitor (requires the monitoring.coreos.com CRDs).
+    enabled: false
+    labels: {}
+    interval: ""
+    scrapeTimeout: ""
+    insecureSkipVerify: true
+    tlsConfig: {}
+
+networkPolicy:
+  # Restrict metrics endpoint ingress to namespaces labelled metrics=enabled.
+  enabled: false
+  metricsPort: 8443
+  fromNamespaceLabels:
+    metrics: enabled
+
+# Images the operator injects into the workloads it manages, exposed as env on the controller.
+operatorImages:
+  initImage: "busybox:1.36"
+  gitImage: "alpine/git:latest"
+  alpineImage: "alpine:latest"
+  s3fsImage: "ghcr.io/marimo-team/marimo-operator/s3fs:latest"
+
+# Additional container args / env (escape hatches).
+extraArgs: []
+extraEnv: []
+  # - name: S3_ENDPOINT
+  #   value: "http://example.com"
+
+extraVolumes: []
+extraVolumeMounts: []
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 128Mi
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8081
+  initialDelaySeconds: 15
+  periodSeconds: 20
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8081
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+podSecurityContext:
+  runAsNonRoot: true
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+terminationGracePeriodSeconds: 10
+
+podAnnotations: {}
+podLabels: {}
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+topologySpreadConstraints: []
+priorityClassName: ""

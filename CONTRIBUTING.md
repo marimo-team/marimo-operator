@@ -38,7 +38,7 @@ go test ./internal/controller/... -run TestReconcile -v
 make test
 ```
 
-**Important:** After modifying types in `api/v1alpha1/`, always run `make manifests && make generate` and commit the generated files.
+**Important:** After modifying types in `api/v1alpha1/`, always run `make manifests && make generate` and commit the generated files. `make manifests` also syncs the Helm chart's CRD copy (`deploy/charts/marimo-operator/crds/`), so commit that too.
 
 ### Plugin (Python)
 
