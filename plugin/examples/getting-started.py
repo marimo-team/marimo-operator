@@ -19,7 +19,6 @@ def _(mo):
     This notebook introduces marimo's **reactive execution model** — if you're
     coming from Jupyter, this is the key difference to understand.
     """)
-    return
 
 
 @app.cell
@@ -49,7 +48,6 @@ def _(mo, slider):
     3. **No cell numbers** — Order on the page doesn't determine execution order
     """
     )
-    return
 
 
 @app.cell
@@ -63,7 +61,6 @@ def _(mo, slider):
     This cell depends on `slider.value`, so it updates automatically when you
     interact with the slider. marimo tracks these dependencies for you.
     """)
-    return
 
 
 @app.cell(hide_code=True)
@@ -77,7 +74,6 @@ def _(mo):
     - **Run as an app** — Use `kubectl marimo run` to serve as a read-only
       dashboard
     """)
-    return
 
 
 @app.cell

@@ -1,14 +1,14 @@
 """Tests for format parsers."""
 
 from kubectl_marimo.formats.markdown import (
-    parse_markdown,
     extract_frontmatter,
     is_marimo_markdown,
+    parse_markdown,
 )
 from kubectl_marimo.formats.python import (
-    parse_python,
     extract_pep723_metadata,
     is_marimo_python,
+    parse_python,
 )
 
 
