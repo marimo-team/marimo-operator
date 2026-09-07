@@ -1,17 +1,16 @@
 """Tests for resources module."""
 
 import pytest
-
 from kubectl_marimo.resources import (
-    compute_hash,
-    slugify,
-    resource_name,
     build_marimo_notebook,
+    build_ssh_sidecar,
+    compute_hash,
     detect_content_type,
+    filter_mounts,
     parse_env,
     parse_mount_uri,
-    filter_mounts,
-    build_ssh_sidecar,
+    resource_name,
+    slugify,
 )
 
 

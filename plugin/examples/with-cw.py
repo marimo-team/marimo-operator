@@ -45,7 +45,6 @@ def read_test_file(os):
             if os.path.exists("/home/marimo/notebooks/mounts")
             else "none",
         )
-    return
 
 
 if __name__ == "__main__":

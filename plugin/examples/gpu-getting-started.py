@@ -83,7 +83,6 @@ def _(device, mo, size_slider, torch):
     3. **Share results** — cached data persists in storage, accessible
        across sessions
     """)
-    return
 
 
 @app.cell
@@ -102,7 +101,6 @@ def _(mo):
 
     See [marimo caching docs](https://docs.marimo.io/api/caching/) for more.
     """)
-    return
 
 
 if __name__ == "__main__":

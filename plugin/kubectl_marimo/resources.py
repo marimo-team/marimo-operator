@@ -6,7 +6,6 @@ import re
 from pathlib import Path
 from typing import Any
 
-
 # Default SSH image, configurable via environment
 SSH_IMAGE = os.environ.get("SSH_IMAGE", "linuxserver/openssh-server:latest")
 

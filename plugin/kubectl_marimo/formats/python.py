@@ -1,8 +1,9 @@
 """Parser for marimo Python notebooks."""
 
 import re
-import tomllib
 from typing import Any
+
+import tomllib
 
 
 def parse_python(content: str) -> tuple[str, dict[str, Any] | None]:
