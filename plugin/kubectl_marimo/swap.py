@@ -1,10 +1,9 @@
 """Swap file management for tracking deployments."""
 
 import json
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 
 @dataclass
@@ -50,7 +49,7 @@ def write_swap_file(file_path: str, meta: SwapMeta) -> None:
         json.dump(meta.to_dict(), f, indent=2)
 
 
-def read_swap_file(file_path: str) -> Optional[SwapMeta]:
+def read_swap_file(file_path: str) -> SwapMeta | None:
     """Read swap file if it exists."""
     swap_path = swap_file_path(file_path)
     if not swap_path.exists():
