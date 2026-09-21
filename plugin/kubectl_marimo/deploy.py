@@ -14,8 +14,8 @@ import click
 
 from .formats import parse_file
 from .k8s import apply_resource, delete_resource, resource_exists
-from .resources import build_marimo_notebook, resource_name, compute_hash, to_yaml
-from .swap import read_swap_file, write_swap_file, create_swap_meta, delete_swap_file
+from .resources import build_marimo_notebook, compute_hash, resource_name, to_yaml
+from .swap import create_swap_meta, delete_swap_file, read_swap_file, write_swap_file
 from .sync import sync_notebook
 
 
