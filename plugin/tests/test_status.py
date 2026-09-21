@@ -2,8 +2,7 @@
 
 import json
 
-
-from kubectl_marimo.status import show_status, format_elapsed
+from kubectl_marimo.status import format_elapsed, show_status
 
 
 class TestShowStatus:

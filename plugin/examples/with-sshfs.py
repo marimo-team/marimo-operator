@@ -18,7 +18,6 @@ def check_mount():
     mount_path = "/home/marimo/notebooks/mounts/sshfs-0"
     exists = os.path.exists(mount_path)
     os.listdir(mount_path) if exists else []
-    return
 
 
 if __name__ == "__main__":
