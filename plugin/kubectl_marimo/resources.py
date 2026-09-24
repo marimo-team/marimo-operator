@@ -103,7 +103,7 @@ def build_ssh_sidecar(index: int) -> dict[str, Any]:
     return {
         "name": f"sshfs-{index}",
         "image": SSH_IMAGE,
-        "exposePort": 2222,
+        "ports": [{"name": "ssh", "containerPort": 2222}],
         "env": [
             {"name": "PASSWORD_ACCESS", "value": "false"},
             {"name": "USER_NAME", "value": "marimo"},

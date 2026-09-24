@@ -35,7 +35,9 @@ spec:
     - name: sshfs
       image: lscr.io/linuxserver/openssh-server:latest
       # Expose SSH port via the service
-      exposePort: 2222
+      ports:
+        - name: ssh
+          containerPort: 2222
       env:
         # Disable password auth - key-based only
         - name: PASSWORD_ACCESS
