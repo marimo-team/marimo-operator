@@ -27,7 +27,6 @@ def check_mount():
                     print(f"{f}: {fp.read()[:100]}")
     else:
         print("Mount not ready")
-    return
 
 
 if __name__ == "__main__":
