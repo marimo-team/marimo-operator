@@ -40,6 +40,7 @@ The marimo-operator is a Kubernetes operator that manages `MarimoNotebook` custo
 | `storage` | StorageSpec | No | PVC configuration |
 | `resources` | ResourcesSpec | No | CPU/memory/GPU requests and limits |
 | `auth` | AuthSpec | No | Authentication configuration |
+| `baseUrl` | string | No | Path prefix to serve marimo under (`--base-url`), e.g. `/my-notebook` |
 | `sidecars` | []SidecarSpec | No | Additional containers |
 | `podOverrides` | PodSpec | No | Strategic merge patch for Pod customization |
 

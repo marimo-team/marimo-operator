@@ -88,6 +88,13 @@ spec:
                     - secretKeyRef
                     type: object
                 type: object
+              baseUrl:
+                description: |-
+                  BaseURL serves marimo under a path prefix (e.g. "/my-notebook"), passed
+                  as --base-url. Set it when a reverse proxy routes a sub-path of a shared
+                  host to this notebook, so asset and websocket URLs include the prefix.
+                pattern: ^/.*[^/]$
+                type: string
               content:
                 description: |-
                   Content is inline notebook content (marimo .py or .md format)
