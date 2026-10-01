@@ -1,6 +1,10 @@
 package resources
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -1508,5 +1512,70 @@ func TestBuildPod_NoSSHFSSidecar_NoSecretMount(t *testing.T) {
 		if vol.Name == testSSHPubkeyName {
 			t.Errorf("%s volume should NOT be present when no sshfs sidecar", testSSHPubkeyName)
 		}
+	}
+}
+
+func TestPodSpecHash_ChangesWithContent(t *testing.T) {
+	build := func(content string) *corev1.Pod {
+		return BuildPod(&marimov1alpha1.MarimoNotebook{
+			ObjectMeta: metav1.ObjectMeta{Name: "test-notebook", Namespace: "default"},
+			Spec: marimov1alpha1.MarimoNotebookSpec{
+				Image:   "ghcr.io/marimo-team/marimo:latest",
+				Port:    2718,
+				Content: &content,
+			},
+		})
+	}
+
+	before, after := build("import marimo\n"), build("import marimo\nimport polars\n")
+
+	// Both pods only reference the ConfigMap by name, so the specs are identical.
+	if !reflect.DeepEqual(before.Spec, after.Spec) {
+		t.Fatal("expected identical pod specs for different content")
+	}
+	if before.Annotations[ContentHashAnnotation] == after.Annotations[ContentHashAnnotation] {
+		t.Error("expected content hash annotation to differ")
+	}
+
+	beforeHash, err := PodSpecHash(before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterHash, err := PodSpecHash(after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if beforeHash == afterHash {
+		t.Error("expected pod spec hash to change when content changes")
+	}
+}
+
+func TestPodSpecHash_SourceModeUnchanged(t *testing.T) {
+	pod := BuildPod(&marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-notebook", Namespace: "default"},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+		},
+	})
+
+	if _, ok := pod.Annotations[ContentHashAnnotation]; ok {
+		t.Error("expected no content hash annotation in source mode")
+	}
+
+	// Source-mode hashes must match the spec-only hash so that upgrading the
+	// operator does not recreate every existing pod.
+	data, err := json.Marshal(pod.Spec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(data)
+	got, err := PodSpecHash(pod)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := hex.EncodeToString(sum[:]); got != want {
+		t.Errorf("expected spec-only hash %s, got %s", want, got)
 	}
 }
