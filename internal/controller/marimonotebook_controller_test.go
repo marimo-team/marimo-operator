@@ -472,6 +472,39 @@ var _ = Describe("MarimoNotebook Controller", func() {
 			}, timeout, interval).Should(BeTrue(), "Pod should be recreated with MY_VAR env var")
 		})
 
+		It("should recreate Pod when inline content is changed", func() {
+			original := "import marimo\napp = marimo.App()\n"
+			notebook.Spec.Source = ""
+			notebook.Spec.Content = &original
+
+			By("creating the MarimoNotebook with inline content")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("waiting for initial Pod to be created")
+			pod := &corev1.Pod{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, pod)
+			}, timeout, interval).Should(Succeed())
+			originalUID := pod.UID
+
+			By("updating the notebook content")
+			updated := original + "\n@app.cell\ndef _():\n    return\n"
+			nb := &marimov1alpha1.MarimoNotebook{}
+			Expect(k8sClient.Get(ctx, namespacedName, nb)).To(Succeed())
+			nb.Spec.Content = &updated
+			Expect(k8sClient.Update(ctx, nb)).To(Succeed())
+
+			// The copy-content init container only runs at pod start, so the
+			// running pod keeps serving the old file until it is replaced.
+			By("verifying Pod is recreated")
+			Eventually(func() bool {
+				if err := k8sClient.Get(ctx, namespacedName, pod); err != nil {
+					return false
+				}
+				return pod.UID != originalUID
+			}, timeout, interval).Should(BeTrue(), "Pod should be recreated after a content change")
+		})
+
 		It("should reject changes to the storage attribute", func() {
 			By("creating the MarimoNotebook with storage")
 			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
