@@ -123,6 +123,13 @@ type MarimoNotebookSpec struct {
 	// +optional
 	Mode string `json:"mode,omitempty"`
 
+	// BaseURL serves marimo under a path prefix (e.g. "/my-notebook"), passed
+	// as --base-url. Set it when a reverse proxy routes a sub-path of a shared
+	// host to this notebook, so asset and websocket URLs include the prefix.
+	// +kubebuilder:validation:Pattern=`^/.*[^/]$`
+	// +optional
+	BaseURL string `json:"baseUrl,omitempty"`
+
 	// Env variables for the marimo container
 	// +optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
