@@ -7,8 +7,8 @@ import click
 
 from .formats import parse_file
 from .k8s import delete_resource, exec_in_pod, patch_resource
-from .resources import compute_hash, resource_name, detect_content_type
-from .swap import read_swap_file, delete_swap_file
+from .resources import compute_hash, detect_content_type, resource_name
+from .swap import delete_swap_file, read_swap_file
 from .sync import sync_local_mounts
 
 

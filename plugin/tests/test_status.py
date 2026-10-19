@@ -1,9 +1,9 @@
 """Tests for status command."""
 
 import json
+from datetime import UTC
 
-
-from kubectl_marimo.status import show_status, format_elapsed
+from kubectl_marimo.status import format_elapsed, show_status
 
 
 class TestShowStatus:
@@ -148,9 +148,9 @@ class TestFormatElapsed:
         assert format_elapsed(None) == "unknown"
 
     def test_valid_timestamp_just_now(self):
-        from datetime import datetime, timezone
+        from datetime import datetime
 
-        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        now = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         assert format_elapsed(now) == "just now"
 
     def test_valid_timestamp_with_z_suffix(self):
