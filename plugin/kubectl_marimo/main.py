@@ -3,8 +3,8 @@
 import click
 
 from . import __version__
-from .deploy import deploy_notebook
 from .delete import delete_notebook
+from .deploy import deploy_notebook
 from .status import show_status
 from .sync import sync_notebook
 
@@ -23,7 +23,6 @@ def cli():
         kubectl marimo delete notebook.py
         kubectl marimo status
     """
-    pass
 
 
 @cli.command()
