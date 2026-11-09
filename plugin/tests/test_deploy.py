@@ -3,7 +3,6 @@
 import socket
 
 import pytest
-
 from kubectl_marimo.deploy import (
     check_secret_exists,
     ensure_cw_credentials,

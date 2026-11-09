@@ -7,7 +7,6 @@ app = marimo.App(width="medium")
 @app.cell
 def _():
     print("righto!")
-    return
 
 
 if __name__ == "__main__":
