@@ -158,6 +158,9 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		"--host=0.0.0.0",
 		fmt.Sprintf("--port=%d", notebook.Spec.Port),
 	}
+	if notebook.Spec.BaseURL != "" {
+		marimoArgs = append(marimoArgs, "--base-url="+notebook.Spec.BaseURL)
+	}
 
 	// Auth configuration:
 	// - auth nil: auto-generate token (secure by default, plugin fetches from logs)

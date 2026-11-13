@@ -184,6 +184,31 @@ var _ = Describe("MarimoNotebook Controller", func() {
 
 			Expect(pod.Spec.Containers[0].Image).To(Equal("marimo:custom"))
 		})
+
+		It("should pass baseUrl to marimo as --base-url", func() {
+			notebook.Spec.BaseURL = "/apps/demo"
+
+			By("creating the MarimoNotebook with a base URL")
+			Expect(k8sClient.Create(ctx, notebook)).To(Succeed())
+
+			By("checking Pod args include --base-url")
+			pod := &corev1.Pod{}
+			Eventually(func() error {
+				return k8sClient.Get(ctx, namespacedName, pod)
+			}, timeout, interval).Should(Succeed())
+
+			Expect(pod.Spec.Containers[0].Args).To(ContainElement("--base-url=/apps/demo"))
+		})
+
+		DescribeTable("should reject a baseUrl marimo would refuse",
+			func(baseURL string) {
+				notebook.Spec.BaseURL = baseURL
+				Expect(k8sClient.Create(ctx, notebook)).To(MatchError(ContainSubstring("spec.baseUrl")))
+			},
+			Entry("bare slash", "/"),
+			Entry("no leading slash", "apps/demo"),
+			Entry("trailing slash", "/apps/demo/"),
+		)
 	})
 
 	Context("When creating a MarimoNotebook with storage", func() {
