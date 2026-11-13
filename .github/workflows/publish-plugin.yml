@@ -8,7 +8,7 @@ on:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-p-small
     environment: pypi
     permissions:
       id-token: write  # For trusted publishing
