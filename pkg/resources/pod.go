@@ -22,13 +22,21 @@ const (
 	DefaultMode = "edit"
 	// PodSpecHashAnnotation is the annotation key used to store the hash of the desired pod spec.
 	PodSpecHashAnnotation = "marimo.io/pod-spec-hash"
+	// ContentHashAnnotation records the hash of inline content on content-mode pods.
+	ContentHashAnnotation = "marimo.io/content-hash"
 )
 
 // PodSpecHash returns a SHA-256 hash of the pod's spec for change detection.
+// The content hash annotation is folded in because the spec only names the
+// content ConfigMap: a content change leaves the spec untouched, and the
+// copy-content init container has already copied the old file.
 func PodSpecHash(pod *corev1.Pod) (string, error) {
 	data, err := json.Marshal(pod.Spec)
 	if err != nil {
 		return "", err
+	}
+	if contentHash, ok := pod.Annotations[ContentHashAnnotation]; ok {
+		data = append(data, contentHash...)
 	}
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:]), nil
@@ -299,7 +307,7 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		basePodSpec = applyPodOverrides(basePodSpec, *notebook.Spec.PodOverrides)
 	}
 
-	return &corev1.Pod{
+	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      notebook.Name,
 			Namespace: notebook.Namespace,
@@ -307,6 +315,12 @@ func BuildPod(notebook *marimov1alpha1.MarimoNotebook) *corev1.Pod {
 		},
 		Spec: basePodSpec,
 	}
+	if contentKey != "" {
+		pod.Annotations = map[string]string{
+			ContentHashAnnotation: ContentHash(*notebook.Spec.Content),
+		}
+	}
+	return pod
 }
 
 // buildSidecarContainer creates a container spec from a SidecarSpec.
