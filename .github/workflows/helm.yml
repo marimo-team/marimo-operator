@@ -7,7 +7,7 @@ on:
 jobs:
   lint:
     name: Lint chart
-    runs-on: ubuntu-p-small
+    runs-on: "${{ vars.CI_RUNNER_SMALL || 'ubuntu-latest' }}"
     steps:
       - name: Clone the code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -23,7 +23,7 @@ jobs:
 
   crd-sync:
     name: CRD in sync with generated manifests
-    runs-on: ubuntu-p-small
+    runs-on: "${{ vars.CI_RUNNER_SMALL || 'ubuntu-latest' }}"
     steps:
       - name: Clone the code
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4

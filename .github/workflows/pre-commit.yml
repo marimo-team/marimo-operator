@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   pre-commit:
-    runs-on: ubuntu-p-small
+    runs-on: "${{ vars.CI_RUNNER_SMALL || 'ubuntu-latest' }}"
     timeout-minutes: 15
     # The Go hooks (go-fmt, go-vet) are skipped here: Go formatting and vetting
     # are already enforced by the golangci-lint workflow (lint.yml), and the
