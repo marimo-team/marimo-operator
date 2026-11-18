@@ -1,14 +1,14 @@
 """Read coordinated release metadata; --sync updates version mirrors."""
 
 import json
+import subprocess
 import re
 import sys
-import tomllib
 from pathlib import Path
 
-version = tomllib.loads(Path("plugin/pyproject.toml").read_text(encoding="utf-8"))[
-    "project"
-]["version"]
+version = subprocess.check_output(
+    ["uv", "version", "--directory", "plugin", "--frozen", "--short"], text=True
+).strip()
 path = Path("plugin/kubectl_marimo/__init__.py")
 pattern = '^__version__ = "[^"\\n]+"$'
 text = path.read_text(encoding="utf-8")

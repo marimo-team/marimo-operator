@@ -100,4 +100,4 @@ Every bug fix should include a regression test that fails before the fix and pas
 
 ## Releases
 
-See [Releases](RELEASING.md) to request, review, and publish a version through a release PR.
+See [Releases](RELEASING.md) for the release PR workflow.
