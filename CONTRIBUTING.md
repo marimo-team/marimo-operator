@@ -98,6 +98,6 @@ marimo-operator/
 
 Every bug fix should include a regression test that fails before the fix and passes after.
 
-## Release Process
+## Releases
 
-Releases are for maintainers only. Tags trigger the publish workflow which builds and pushes the operator image and publishes the plugin to PyPI.
+See [Releases](RELEASING.md) for the release PR workflow.
