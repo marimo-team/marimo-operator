@@ -2,11 +2,9 @@ name: Plugin Tests
 
 on:
   push:
-    paths:
-      - 'plugin/**'
+    branches: [main]
   pull_request:
-    paths:
-      - 'plugin/**'
+    branches: [main]
 
 jobs:
   test:
