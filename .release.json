@@ -1,0 +1,29 @@
+{
+  "repository": "marimo-team/marimo-operator",
+  "files": [
+    "plugin/pyproject.toml",
+    "plugin/uv.lock",
+    "plugin/kubectl_marimo/__init__.py"
+  ],
+  "command": [
+    "./scripts/release.sh"
+  ],
+  "docs": "RELEASING.md",
+  "checks": [
+    [
+      "uv",
+      "lock",
+      "--directory",
+      "plugin",
+      "--check"
+    ]
+  ],
+  "metadata": [
+    "python3",
+    "scripts/release-metadata.py"
+  ],
+  "prepare": [
+    "bash",
+    "scripts/prepare-release.sh"
+  ]
+}
