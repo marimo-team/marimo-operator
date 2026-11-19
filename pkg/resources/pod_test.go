@@ -984,6 +984,64 @@ func TestBuildPod_ModeEdit(t *testing.T) {
 	}
 }
 
+func TestBuildPod_BaseURL(t *testing.T) {
+	content := "import marimo\napp = marimo.App()\n"
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:   "ghcr.io/marimo-team/marimo:latest",
+			Port:    2718,
+			Content: &content,
+			Mode:    "run",
+			BaseURL: "/apps/test-notebook",
+		},
+	}
+
+	pod := BuildPod(notebook)
+	args := pod.Spec.Containers[0].Args
+
+	baseURLIdx, sandboxIdx := -1, -1
+	for i, arg := range args {
+		switch arg {
+		case "--base-url=/apps/test-notebook":
+			baseURLIdx = i
+		case "--sandbox":
+			sandboxIdx = i
+		}
+	}
+	if baseURLIdx == -1 {
+		t.Fatalf("expected --base-url=/apps/test-notebook in args, got %v", args)
+	}
+	// The notebook path must stay last, so flags have to precede --sandbox <file>.
+	if sandboxIdx == -1 || baseURLIdx > sandboxIdx {
+		t.Errorf("expected --base-url before --sandbox, got %v", args)
+	}
+}
+
+func TestBuildPod_BaseURLUnset(t *testing.T) {
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "test-notebook",
+			Namespace: "default",
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:  "ghcr.io/marimo-team/marimo:latest",
+			Port:   2718,
+			Source: "https://github.com/marimo-team/marimo.git",
+		},
+	}
+
+	pod := BuildPod(notebook)
+	for _, arg := range pod.Spec.Containers[0].Args {
+		if strings.HasPrefix(arg, "--base-url") {
+			t.Errorf("expected no --base-url flag when baseUrl is unset, got %q", arg)
+		}
+	}
+}
+
 func TestBuildPod_EnvVars(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
