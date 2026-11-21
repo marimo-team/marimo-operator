@@ -16,7 +16,6 @@ def check():
 
     path = "/home/marimo/notebooks"
     os.listdir(path) if os.path.exists(path) else []
-    return
 
 
 if __name__ == "__main__":

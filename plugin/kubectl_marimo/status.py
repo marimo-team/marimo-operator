@@ -1,6 +1,6 @@
 """Status command implementation."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import click
@@ -65,10 +65,8 @@ def format_elapsed(iso_timestamp: str | None) -> str:
     if not iso_timestamp or not isinstance(iso_timestamp, str):
         return "unknown"
     try:
-        applied = datetime.fromisoformat(iso_timestamp.rstrip("Z")).replace(
-            tzinfo=timezone.utc
-        )
-        elapsed = datetime.now(timezone.utc) - applied
+        applied = datetime.fromisoformat(iso_timestamp.rstrip("Z")).replace(tzinfo=UTC)
+        elapsed = datetime.now(UTC) - applied
         total_seconds = elapsed.total_seconds()
 
         if total_seconds < 60:

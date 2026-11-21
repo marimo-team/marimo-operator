@@ -1,7 +1,6 @@
 """Tests for delete module."""
 
 import pytest
-
 from kubectl_marimo.delete import delete_notebook
 
 
