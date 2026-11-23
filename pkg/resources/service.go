@@ -19,14 +19,18 @@ func BuildService(notebook *marimov1alpha1.MarimoNotebook) *corev1.Service {
 		},
 	}
 
-	// Expose sidecar ports if configured
+	// Expose all sidecar container ports
 	for _, sidecar := range notebook.Spec.Sidecars {
-		if sidecar.ExposePort != nil {
+		for _, port := range sidecar.Ports {
+			protocol := port.Protocol
+			if protocol == "" {
+				protocol = corev1.ProtocolTCP
+			}
 			ports = append(ports, corev1.ServicePort{
-				Name:       sidecar.Name,
-				Port:       *sidecar.ExposePort,
-				TargetPort: intstr.FromInt32(*sidecar.ExposePort),
-				Protocol:   corev1.ProtocolTCP,
+				Name:       port.Name,
+				Port:       port.ContainerPort,
+				TargetPort: intstr.FromInt32(port.ContainerPort),
+				Protocol:   protocol,
 			})
 		}
 	}
