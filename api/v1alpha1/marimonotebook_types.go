@@ -87,6 +87,12 @@ type MarimoNotebookSpec struct {
 	// +optional
 	Image string `json:"image,omitempty"`
 
+	// User id for containers in the marimo pod
+	// +kubebuilder:default:=1000
+	// +kubebuilder:validation:Minimum=0
+	// +optional
+	RunAsUser *int64 `json:"runAsUser,omitempty"`
+
 	// Port for marimo server
 	// +kubebuilder:default:=2718
 	// +kubebuilder:validation:Minimum=1

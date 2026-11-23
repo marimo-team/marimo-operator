@@ -20,6 +20,8 @@ const (
 	testSSHPubkeyName   = "ssh-pubkey"
 )
 
+func ptrString(s string) *string { return &s }
+
 func TestBuildPod_BasicConfig(t *testing.T) {
 	notebook := &marimov1alpha1.MarimoNotebook{
 		ObjectMeta: metav1.ObjectMeta{
@@ -1072,13 +1074,71 @@ func TestBuildPod_EnvVarsEmpty(t *testing.T) {
 	}
 }
 
+func TestBuildPod_RunAsUser(t *testing.T) {
+	var runAsUser int64 = 1234
+	notebook := &marimov1alpha1.MarimoNotebook{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      testNotebookName,
+			Namespace: testNamespace,
+		},
+		Spec: marimov1alpha1.MarimoNotebookSpec{
+			Image:     "ghcr.io/marimo-team/marimo:latest",
+			Port:      2718,
+			Source:    "https://github.com/marimo-team/marimo.git",
+			RunAsUser: &runAsUser,
+		},
+	}
+
+	pod := BuildPod(notebook)
+
+	// Check marimo main container has RunAsUser set
+	var marimoContainer *corev1.Container
+	for i := range pod.Spec.Containers {
+		if pod.Spec.Containers[i].Name == testMarimoContainer {
+			marimoContainer = &pod.Spec.Containers[i]
+			break
+		}
+	}
+	if marimoContainer == nil {
+		t.Fatal("marimo container not found")
+	}
+	if marimoContainer.SecurityContext == nil || marimoContainer.SecurityContext.RunAsUser == nil {
+		t.Fatal("marimo container SecurityContext.RunAsUser not set")
+	}
+	if *marimoContainer.SecurityContext.RunAsUser != runAsUser {
+		t.Errorf("marimo container RunAsUser: expected %d, got %d", runAsUser, *marimoContainer.SecurityContext.RunAsUser)
+	}
+
+	// Check git-clone init container has RunAsUser set
+	var gitCloneContainer *corev1.Container
+	for i := range pod.Spec.InitContainers {
+		if pod.Spec.InitContainers[i].Name == "git-clone" {
+			gitCloneContainer = &pod.Spec.InitContainers[i]
+			break
+		}
+	}
+	if gitCloneContainer == nil {
+		t.Fatal("git-clone init container not found")
+	}
+	if gitCloneContainer.SecurityContext == nil || gitCloneContainer.SecurityContext.RunAsUser == nil {
+		t.Fatal("git-clone container SecurityContext.RunAsUser not set")
+	}
+	if *gitCloneContainer.SecurityContext.RunAsUser != runAsUser {
+		t.Errorf(
+			"git-clone container RunAsUser: expected %d, got %d",
+			runAsUser,
+			*gitCloneContainer.SecurityContext.RunAsUser,
+		)
+	}
+}
+
 func TestExpandMounts_SSHFSIgnored(t *testing.T) {
 	// sshfs:// mounts are handled by the plugin, not the operator
 	mounts := []string{
 		"sshfs:///home/marimo/notebooks",
 	}
 
-	sidecars := expandMounts(mounts)
+	sidecars := expandMounts(mounts, nil)
 
 	// sshfs:// should be ignored (plugin handles it)
 	if len(sidecars) != 0 {
@@ -1092,7 +1152,7 @@ func TestExpandMounts_UnsupportedScheme(t *testing.T) {
 		"nfs://server/path",  // Not supported yet
 	}
 
-	sidecars := expandMounts(mounts)
+	sidecars := expandMounts(mounts, nil)
 
 	// Should return empty - unsupported schemes are ignored
 	if len(sidecars) != 0 {
@@ -1106,7 +1166,7 @@ func TestExpandMounts_RsyncIgnored(t *testing.T) {
 		"rsync://./local/data",
 	}
 
-	sidecars := expandMounts(mounts)
+	sidecars := expandMounts(mounts, nil)
 
 	// rsync:// should be ignored (plugin handles it)
 	if len(sidecars) != 0 {
@@ -1122,7 +1182,7 @@ func TestExpandMounts_MixedSchemes(t *testing.T) {
 		"cw://bucket/path3",
 	}
 
-	sidecars := expandMounts(mounts)
+	sidecars := expandMounts(mounts, nil)
 
 	// Only cw:// should produce sidecar
 	if len(sidecars) != 1 {
@@ -1206,7 +1266,7 @@ func TestParseCWMountURI(t *testing.T) {
 func TestExpandMounts_CW(t *testing.T) {
 	mounts := []string{"cw://mybucket/data"}
 
-	sidecars := expandMounts(mounts)
+	sidecars := expandMounts(mounts, nil)
 
 	if len(sidecars) != 1 {
 		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
@@ -1239,7 +1299,7 @@ func TestExpandMounts_CW(t *testing.T) {
 func TestExpandMounts_CWCustomMountPoint(t *testing.T) {
 	mounts := []string{"cw://mybucket/data:/mnt/s3"}
 
-	sidecars := expandMounts(mounts)
+	sidecars := expandMounts(mounts, nil)
 
 	if len(sidecars) != 1 {
 		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
@@ -1258,7 +1318,7 @@ func TestExpandMounts_CWCustomMountPoint(t *testing.T) {
 func TestExpandMounts_CWBucketOnly(t *testing.T) {
 	mounts := []string{"cw://mybucket"}
 
-	sidecars := expandMounts(mounts)
+	sidecars := expandMounts(mounts, nil)
 
 	if len(sidecars) != 1 {
 		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))
@@ -1278,7 +1338,7 @@ func TestExpandMounts_CWBucketOnly(t *testing.T) {
 func TestExpandMounts_CWSecretReference(t *testing.T) {
 	mounts := []string{"cw://mybucket/data"}
 
-	sidecars := expandMounts(mounts)
+	sidecars := expandMounts(mounts, nil)
 
 	if len(sidecars) != 1 {
 		t.Fatalf("expected 1 sidecar, got %d", len(sidecars))

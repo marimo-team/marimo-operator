@@ -311,6 +311,12 @@ spec:
                     description: Requests specifies minimum resources required
                     type: object
                 type: object
+              runAsUser:
+                default: 1000
+                description: User id for containers in the marimo pod
+                format: int64
+                minimum: 0
+                type: integer
               sidecars:
                 description: |-
                   Sidecars are additional containers that run alongside marimo
